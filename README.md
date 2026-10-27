@@ -1,6 +1,7 @@
 # AI KP
 
 > **新平台（开发中）**：支持接入剧本、自动压缩上下文、按剧本与玩家行动调整节奏的 KP 平台，内置 7 种规则。
+> **第一次使用请看 [使用说明](docs/使用说明.md)**（从安装到开团，一步一步）。
 > 启动：`npm install && npm run build && npm run platform`，打开 http://127.0.0.1:3100 。设计与进度见 [docs/PLATFORM_DESIGN.md](docs/PLATFORM_DESIGN.md)。
 > 下面是旧版（v0.3-half）的说明，新平台稳定后会移除。
 
