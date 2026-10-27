@@ -1,0 +1,63 @@
+{
+  "kind": "scenario",
+  "id": "lantern-vault",
+  "version": "1.0.0",
+  "name": "雾灯地窖",
+  "description": "原创短篇：探索失去灯光的地窖，处理守卫与旧约。",
+  "startLocation": "雾灯镇 · 废弃灯塔入口",
+  "startSceneId": "entrance",
+  "scenes": [
+    {
+      "id": "entrance",
+      "name": "灯塔入口",
+      "description": "湿石阶旁挂着熄灭的铁灯。",
+      "links": ["cellar"],
+      "npcs": [
+        {
+          "name": "码头信使",
+          "description": "请求找回灯光的年轻信使。"
+        }
+      ],
+      "entryCondition": {
+        "type": "always"
+      },
+      "revealCondition": null
+    },
+    {
+      "id": "cellar",
+      "name": "潮湿地窖",
+      "description": "木架与齿轮守卫挡住长廊。",
+      "links": ["entrance", "beacon"],
+      "npcs": [
+        {
+          "name": "齿轮守卫",
+          "description": "循着声响转动的铜制守卫。"
+        }
+      ],
+      "entryCondition": {
+        "type": "always"
+      },
+      "revealCondition": {
+        "type": "planned",
+        "description": "剧本条件揭示系统尚未实现；自由检定不会自动揭密。"
+      }
+    },
+    {
+      "id": "beacon",
+      "name": "蓝灯室",
+      "description": "裂窗后的灯芯仍有微光，墙上刻着旧约。",
+      "links": ["cellar"],
+      "npcs": [],
+      "entryCondition": {
+        "type": "always"
+      },
+      "revealCondition": null
+    }
+  ],
+  "opening": "潮水敲着石阶，最后一盏蓝灯在门后闪烁。你们来到废弃灯塔；地窖传来金属拖动的声音。你们准备如何接近？",
+  "secrets": ["守灯人藏在第二道门后，铜铃是停下守卫的钥匙。"],
+  "personalSecrets": [
+    "你曾在镇史中读过：三声铜铃代表停战。",
+    "你认得入口的旧商会标志。"
+  ]
+}

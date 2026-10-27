@@ -1,0 +1,26 @@
+{
+  "kind": "rules",
+  "id": "simple-d20",
+  "version": "1.0.0",
+  "name": "烛火 d20",
+  "description": "原创简化 d20；不是完整 D&D 规则。",
+  "engine": "simple-d20-v1",
+  "parameters": {
+    "defaultDc": 12,
+    "maxStamina": 6,
+    "damageSides": 6,
+    "damageBonus": 2
+  },
+  "supported": [
+    "d20+固定加值检定",
+    "护甲命中与 d6+2 伤害",
+    "体力与生命",
+    "顺序回合与敌人反击"
+  ],
+  "unsupported": [
+    "职业/法术/升级",
+    "优势劣势与豁免",
+    "完整 D&D 版权规则",
+    "复杂距离、地图寻路"
+  ]
+}

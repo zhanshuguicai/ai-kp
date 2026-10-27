@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,60}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "kind": {
+      "const": "rules"
+    },
+    "engine": {
+      "const": "simple-d20-v1"
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultDc": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 25
+        },
+        "maxStamina": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "damageSides": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "damageBonus": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "defaultDc",
+        "maxStamina",
+        "damageSides",
+        "damageBonus"
+      ]
+    },
+    "supported": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    },
+    "unsupported": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      }
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "name",
+    "description",
+    "kind",
+    "engine",
+    "parameters",
+    "supported",
+    "unsupported"
+  ]
+}

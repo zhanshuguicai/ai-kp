@@ -1,0 +1,627 @@
+{
+  "application": "0.2.0",
+  "scenario": "lantern-vault@2.0.0",
+  "provider": "mock/local-demo",
+  "dice": "always max (injected for deterministic proof)",
+  "routes": {
+    "peaceful": {
+      "inputs": [
+        "调查旧箱",
+        "进入地窖",
+        "摇响铜铃",
+        "进入蓝灯室",
+        "修复灯芯",
+        "点亮蓝灯"
+      ],
+      "status": "won",
+      "ending": {
+        "id": "light",
+        "title": "归航之灯",
+        "text": "蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"
+      },
+      "objectives": [
+        {
+          "id": "find-bell",
+          "text": "调查入口并寻找可用物品",
+          "completed": true
+        },
+        {
+          "id": "pass-guard",
+          "text": "通过地窖守卫",
+          "completed": true
+        },
+        {
+          "id": "repair-wick",
+          "text": "修复灯芯",
+          "completed": true
+        },
+        {
+          "id": "light-beacon",
+          "text": "点亮灯塔",
+          "completed": true
+        }
+      ],
+      "steps": [
+        {
+          "input": "调查旧箱",
+          "version": 2,
+          "sceneId": "entrance",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：调查旧箱"
+            },
+            {
+              "type": "decision",
+              "text": "执行：调查旧箱"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：调查旧箱"
+            },
+            {
+              "type": "inventory",
+              "text": "铜铃 +1"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：调查入口并寻找可用物品"
+            },
+            {
+              "type": "reveal",
+              "text": "旧箱里有一枚铜铃，箱盖写着：三声铃响，守卫止戈。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：调查旧箱 铜铃 +1 目标完成：调查入口并寻找可用物品 旧箱里有一枚铜铃，箱盖写着：三声铃响，守卫止戈。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "进入地窖",
+          "version": 3,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：进入地窖"
+            },
+            {
+              "type": "decision",
+              "text": "执行：进入潮湿地窖"
+            },
+            {
+              "type": "move",
+              "text": "旅人 带领队伍来到潮湿地窖。木架与齿轮守卫挡住长廊。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 带领队伍来到潮湿地窖。木架与齿轮守卫挡住长廊。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "摇响铜铃",
+          "version": 4,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：摇响铜铃"
+            },
+            {
+              "type": "decision",
+              "text": "执行：摇响铜铃"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：摇响铜铃"
+            },
+            {
+              "type": "reveal",
+              "text": "三声铜铃响过，守卫垂下武器，打开蓝灯室的门。"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：通过地窖守卫"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：摇响铜铃 三声铜铃响过，守卫垂下武器，打开蓝灯室的门。 目标完成：通过地窖守卫\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "进入蓝灯室",
+          "version": 5,
+          "sceneId": "beacon",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：进入蓝灯室"
+            },
+            {
+              "type": "decision",
+              "text": "执行：进入蓝灯室"
+            },
+            {
+              "type": "move",
+              "text": "旅人 带领队伍来到蓝灯室。裂窗后的灯芯仍有微光，墙上刻着旧约。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 带领队伍来到蓝灯室。裂窗后的灯芯仍有微光，墙上刻着旧约。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "修复灯芯",
+          "version": 6,
+          "sceneId": "beacon",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：修复灯芯"
+            },
+            {
+              "type": "decision",
+              "text": "执行：修复灯芯"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：修复灯芯"
+            },
+            {
+              "type": "check",
+              "text": "旅人 修复灯芯：d20(20)+3 / DC 10，成功。"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：修复灯芯"
+            },
+            {
+              "type": "reveal",
+              "text": "你重新接好灯芯，灯油开始沿棉线渗出。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：修复灯芯 旅人 修复灯芯：d20(20)+3 / DC 10，成功。 目标完成：修复灯芯 你重新接好灯芯，灯油开始沿棉线渗出。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "点亮蓝灯",
+          "version": 7,
+          "sceneId": "beacon",
+          "status": "won",
+          "mode": "exploration",
+          "inventory": [
+            {
+              "id": "bell",
+              "name": "铜铃",
+              "quantity": 1
+            }
+          ],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：点亮蓝灯"
+            },
+            {
+              "type": "decision",
+              "text": "执行：点亮蓝灯"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：点亮蓝灯"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：点亮灯塔"
+            },
+            {
+              "type": "ending",
+              "text": "归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：点亮蓝灯 目标完成：点亮灯塔 归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。\n冒险已经结束。可回顾记录或导出存档。"
+            }
+          ]
+        }
+      ]
+    },
+    "combat": {
+      "inputs": [
+        "进入地窖",
+        "挑战守卫",
+        "攻击齿轮守卫",
+        "攻击齿轮守卫",
+        "攻击齿轮守卫",
+        "进入蓝灯室",
+        "修复灯芯",
+        "点亮蓝灯"
+      ],
+      "status": "won",
+      "ending": {
+        "id": "light",
+        "title": "归航之灯",
+        "text": "蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"
+      },
+      "objectives": [
+        {
+          "id": "find-bell",
+          "text": "调查入口并寻找可用物品",
+          "completed": false
+        },
+        {
+          "id": "pass-guard",
+          "text": "通过地窖守卫",
+          "completed": true
+        },
+        {
+          "id": "repair-wick",
+          "text": "修复灯芯",
+          "completed": true
+        },
+        {
+          "id": "light-beacon",
+          "text": "点亮灯塔",
+          "completed": true
+        }
+      ],
+      "steps": [
+        {
+          "input": "进入地窖",
+          "version": 2,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：进入地窖"
+            },
+            {
+              "type": "decision",
+              "text": "执行：进入潮湿地窖"
+            },
+            {
+              "type": "move",
+              "text": "旅人 带领队伍来到潮湿地窖。木架与齿轮守卫挡住长廊。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 带领队伍来到潮湿地窖。木架与齿轮守卫挡住长廊。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "挑战守卫",
+          "version": 3,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "combat",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：挑战守卫"
+            },
+            {
+              "type": "decision",
+              "text": "执行：挑战守卫"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：挑战守卫"
+            },
+            {
+              "type": "combat",
+              "text": "齿轮守卫 启动！可攻击、结束回合或撤退。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：挑战守卫 齿轮守卫 启动！可攻击、结束回合或撤退。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "攻击齿轮守卫",
+          "version": 4,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "combat",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：攻击齿轮守卫"
+            },
+            {
+              "type": "decision",
+              "text": "执行：攻击齿轮守卫"
+            },
+            {
+              "type": "attack",
+              "text": "旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "攻击齿轮守卫",
+          "version": 5,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "combat",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：攻击齿轮守卫"
+            },
+            {
+              "type": "decision",
+              "text": "执行：攻击齿轮守卫"
+            },
+            {
+              "type": "attack",
+              "text": "旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "攻击齿轮守卫",
+          "version": 6,
+          "sceneId": "cellar",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：攻击齿轮守卫"
+            },
+            {
+              "type": "decision",
+              "text": "执行：攻击齿轮守卫"
+            },
+            {
+              "type": "attack",
+              "text": "旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。"
+            },
+            {
+              "type": "combat",
+              "text": "守卫停止运转，战斗结束。"
+            },
+            {
+              "type": "reveal",
+              "text": "守卫的齿轮停止转动，通往蓝灯室的门锁松开。"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：通过地窖守卫"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。 守卫停止运转，战斗结束。 守卫的齿轮停止转动，通往蓝灯室的门锁松开。 目标完成：通过地窖守卫\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "进入蓝灯室",
+          "version": 7,
+          "sceneId": "beacon",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：进入蓝灯室"
+            },
+            {
+              "type": "decision",
+              "text": "执行：进入蓝灯室"
+            },
+            {
+              "type": "move",
+              "text": "旅人 带领队伍来到蓝灯室。裂窗后的灯芯仍有微光，墙上刻着旧约。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人 带领队伍来到蓝灯室。裂窗后的灯芯仍有微光，墙上刻着旧约。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "修复灯芯",
+          "version": 8,
+          "sceneId": "beacon",
+          "status": "active",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：修复灯芯"
+            },
+            {
+              "type": "decision",
+              "text": "执行：修复灯芯"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：修复灯芯"
+            },
+            {
+              "type": "check",
+              "text": "旅人 修复灯芯：d20(20)+3 / DC 10，成功。"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：修复灯芯"
+            },
+            {
+              "type": "reveal",
+              "text": "你重新接好灯芯，灯油开始沿棉线渗出。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：修复灯芯 旅人 修复灯芯：d20(20)+3 / DC 10，成功。 目标完成：修复灯芯 你重新接好灯芯，灯油开始沿棉线渗出。\n请根据已公开交互选择下一步。"
+            }
+          ]
+        },
+        {
+          "input": "点亮蓝灯",
+          "version": 9,
+          "sceneId": "beacon",
+          "status": "won",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：点亮蓝灯"
+            },
+            {
+              "type": "decision",
+              "text": "执行：点亮蓝灯"
+            },
+            {
+              "type": "interact",
+              "text": "旅人：点亮蓝灯"
+            },
+            {
+              "type": "objective",
+              "text": "目标完成：点亮灯塔"
+            },
+            {
+              "type": "ending",
+              "text": "归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n旅人：点亮蓝灯 目标完成：点亮灯塔 归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。\n冒险已经结束。可回顾记录或导出存档。"
+            }
+          ]
+        }
+      ]
+    },
+    "retreat": {
+      "inputs": [
+        "撤退"
+      ],
+      "status": "lost",
+      "ending": {
+        "id": "retreat",
+        "title": "雾中撤退",
+        "text": "你选择返回码头求援。今夜灯塔仍然漆黑，渔船转向避风港；本次任务失败，但队伍保住了性命。"
+      },
+      "objectives": [
+        {
+          "id": "find-bell",
+          "text": "调查入口并寻找可用物品",
+          "completed": false
+        },
+        {
+          "id": "pass-guard",
+          "text": "通过地窖守卫",
+          "completed": false
+        },
+        {
+          "id": "repair-wick",
+          "text": "修复灯芯",
+          "completed": false
+        },
+        {
+          "id": "light-beacon",
+          "text": "点亮灯塔",
+          "completed": false
+        }
+      ],
+      "steps": [
+        {
+          "input": "撤退",
+          "version": 2,
+          "sceneId": "entrance",
+          "status": "lost",
+          "mode": "exploration",
+          "inventory": [],
+          "events": [
+            {
+              "type": "say",
+              "text": "旅人：撤退"
+            },
+            {
+              "type": "decision",
+              "text": "执行：撤退"
+            },
+            {
+              "type": "ending",
+              "text": "雾中撤退：你选择返回码头求援。今夜灯塔仍然漆黑，渔船转向避风港；本次任务失败，但队伍保住了性命。"
+            },
+            {
+              "type": "kp",
+              "text": "【本地演示 KP】根据本轮已批准事件叙述结果。\n雾中撤退：你选择返回码头求援。今夜灯塔仍然漆黑，渔船转向避风港；本次任务失败，但队伍保住了性命。\n冒险已经结束。可回顾记录或导出存档。"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

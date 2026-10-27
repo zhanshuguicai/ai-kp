@@ -1,0 +1,17 @@
+{
+  "name": "ai-kp-local",
+  "version": "0.3.0-half",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node --env-file-if-exists=.env dist/src/server.js",
+    "test": "npm run build && node --test dist/tests/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.7.0"
+  }
+}

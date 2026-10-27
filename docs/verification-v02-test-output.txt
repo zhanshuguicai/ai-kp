@@ -1,0 +1,255 @@
+
+> ai-kp-local@0.2.0 test
+> npm run build && node --test dist/tests/*.test.js
+
+
+> ai-kp-local@0.2.0 build
+> tsc
+
+TAP version 13
+# PEACE ROUTE {"inputs":["调查旧箱","进入地窖","摇响铜铃","进入蓝灯室","修复灯芯","点亮蓝灯"],"status":"won","ending":{"id":"light","title":"归航之灯","text":"蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"},"events":["铜铃 +1","目标完成：调查入口并寻找可用物品","旧箱里有一枚铜铃，箱盖写着：三声铃响，守卫止戈。","旅人 带领队伍来到潮湿地窖。木架与齿轮守卫挡住长廊。","三声铜铃响过，守卫垂下武器，打开蓝灯室的门。","目标完成：通过地窖守卫","旅人 带领队伍来到蓝灯室。裂窗后的灯芯仍有微光，墙上刻着旧约。","目标完成：修复灯芯","你重新接好灯芯，灯油开始沿棉线渗出。","目标完成：点亮灯塔","归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"]}
+# COMBAT ROUTE {"inputs":["进入地窖","挑战守卫","攻击齿轮守卫","攻击齿轮守卫","攻击齿轮守卫","进入蓝灯室","修复灯芯","点亮蓝灯"],"status":"won","events":["齿轮守卫 启动！可攻击、结束回合或撤退。","旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。","旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。","旅人 攻击 齿轮守卫：d20(20)+3，造成 8 伤害。","守卫停止运转，战斗结束。","归航之灯：蓝灯穿透浓雾，渔船沿光返港。守灯人的旧约得到延续；信使向你致谢。冒险完成。"]}
+# Subtest: v2 peaceful entire natural-language adventure reaches explicit ending, ending protects mutation
+ok 1 - v2 peaceful entire natural-language adventure reaches explicit ending, ending protects mutation
+  ---
+  duration_ms: 37.5931
+  ...
+# Subtest: v2 combat entire natural-language route and retreat failure ending
+ok 2 - v2 combat entire natural-language route and retreat failure ending
+  ---
+  duration_ms: 27.5896
+  ...
+# Subtest: questions, quotation, negation, conditionals, multiple actions and ambiguity never spend resources
+ok 3 - questions, quotation, negation, conditionals, multiple actions and ambiguity never spend resources
+  ---
+  duration_ms: 46.4142
+  ...
+# Subtest: public view and director context exclude locked scene, hidden flags, private clues and trigger effects
+ok 4 - public view and director context exclude locked scene, hidden flags, private clues and trigger effects
+  ---
+  duration_ms: 9.9242
+  ...
+# Subtest: provider may not invent DC, resource, actor or hidden action; malformed decision rejected
+ok 5 - provider may not invent DC, resource, actor or hidden action; malformed decision rejected
+  ---
+  duration_ms: 32.1905
+  ...
+# Subtest: proposals bind actor/version/id, can confirm or cancel once, expire on another mutation
+ok 6 - proposals bind actor/version/id, can confirm or cancel once, expire on another mutation
+  ---
+  duration_ms: 20.409
+  ...
+# Subtest: narrative failure after action/trigger has no partial item, stamina, scene or ending commit
+ok 7 - narrative failure after action/trigger has no partial item, stamina, scene or ending commit
+  ---
+  duration_ms: 4.2513
+  ...
+# Subtest: check failure can retry after rest, no single failure softlock; manual and language share authoritative cost
+ok 8 - check failure can retry after rest, no single failure softlock; manual and language share authoritative cost
+  ---
+  duration_ms: 77.1183
+  ...
+# Subtest: one-time rewards, repeat triggers bounded per action, cycles terminate and restart/restore retain fired state
+ok 9 - one-time rewards, repeat triggers bounded per action, cycles terminate and restart/restore retain fired state
+  ---
+  duration_ms: 28.3809
+  ...
+# Subtest: trigger total execution limit rolls back and private reveal stays private
+ok 10 - trigger total execution limit rolls back and private reveal stays private
+  ---
+  duration_ms: 20.3439
+  ...
+# Subtest: package references, contradictory flags, duplicate ids and prototype ids are rejected
+ok 11 - package references, contradictory flags, duplicate ids and prototype ids are rejected
+  ---
+  duration_ms: 2.1716
+  ...
+# Subtest: legacy v1 packages and save without story normalize without reset; exact versions selected
+ok 12 - legacy v1 packages and save without story normalize without reset; exact versions selected
+  ---
+  duration_ms: 6.3957
+  ...
+# Subtest: QQ simulator uses natural-language director, idempotency and story entry
+ok 13 - QQ simulator uses natural-language director, idempotency and story entry
+  ---
+  duration_ms: 9.8781
+  ...
+# Subtest: openai structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+ok 14 - openai structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+  ---
+  duration_ms: 58.3227
+  ...
+# Subtest: openai interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+ok 15 - openai interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+  ---
+  duration_ms: 29.1876
+  ...
+# Subtest: anthropic structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+ok 16 - anthropic structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+  ---
+  duration_ms: 12.6532
+  ...
+# Subtest: anthropic interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+ok 17 - anthropic interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+  ---
+  duration_ms: 16.328
+  ...
+# Subtest: gemini structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+ok 18 - gemini structured interpret schema, reversed JSON key order and complete GameService action+narration via injected transport
+  ---
+  duration_ms: 7.7772
+  ...
+# Subtest: gemini interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+ok 19 - gemini interpret errors, malformed payload, refusal, truncation and timeout fail without paid fallback
+  ---
+  duration_ms: 13.3028
+  ...
+# Subtest: real director still interprets NPC questions, while erroneous question actions are blocked
+ok 20 - real director still interprets NPC questions, while erroneous question actions are blocked
+  ---
+  duration_ms: 23.9004
+  ...
+# Subtest: natural-language turn and pause boundaries reject state mutation without partial events
+ok 21 - natural-language turn and pause boundaries reject state mutation without partial events
+  ---
+  duration_ms: 17.8471
+  ...
+# Subtest: local narration does not recursively embed previous KP output; public history is bounded
+ok 22 - local narration does not recursively embed previous KP output; public history is bounded
+  ---
+  duration_ms: 626.2604
+  ...
+# Subtest: cyclic repeat triggers execute once each per action and first ending stops later effects
+ok 23 - cyclic repeat triggers execute once each per action and first ending stops later effects
+  ---
+  duration_ms: 16.0388
+  ...
+# Subtest: legacy save at a moved scene normalizes position and rejects invalid new story references
+ok 24 - legacy save at a moved scene normalizes position and rejects invalid new story references
+  ---
+  duration_ms: 9.893
+  ...
+# Subtest: concurrent create and import retain all index entries after restart
+ok 25 - concurrent create and import retain all index entries after restart
+  ---
+  duration_ms: 270.6331
+  ...
+# Subtest: model failure leaves authoritative version and event list untouched
+ok 26 - model failure leaves authoritative version and event list untouched
+  ---
+  duration_ms: 13.8354
+  ...
+# Subtest: provider custom version root, max output and timeout; URL credentials rejected
+ok 27 - provider custom version root, max output and timeout; URL credentials rejected
+  ---
+  duration_ms: 55.437
+  ...
+# Subtest: catalog, owner projection and public model context contain no undisclosed secrets
+ok 28 - catalog, owner projection and public model context contain no undisclosed secrets
+  ---
+  duration_ms: 16.4201
+  ...
+# Subtest: identity forgery and owner/player separation rejected
+ok 29 - identity forgery and owner/player separation rejected
+  ---
+  duration_ms: 8.0636
+  ...
+# Subtest: same request id returns result without second die roll or cost; content reuse rejected
+ok 30 - same request id returns result without second die roll or cost; content reuse rejected
+  ---
+  duration_ms: 5.8097
+  ...
+# Subtest: concurrent writes serialize and exactly one stale version fails
+ok 31 - concurrent writes serialize and exactly one stale version fails
+  ---
+  duration_ms: 5.3978
+  ...
+# Subtest: resource exhaustion and paused actions do not commit
+ok 32 - resource exhaustion and paused actions do not commit
+  ---
+  duration_ms: 18.7574
+  ...
+# Subtest: combat validates turn, target and mode and ends after authoritative damage
+ok 33 - combat validates turn, target and mode and ends after authoritative damage
+  ---
+  duration_ms: 16.6811
+  ...
+# Subtest: graph navigation respects links; free checks never reveal secrets
+ok 34 - graph navigation respects links; free checks never reveal secrets
+  ---
+  duration_ms: 7.9135
+  ...
+# Subtest: malformed packages missing id, wrong type, broken links, unknown engine rejected
+ok 35 - malformed packages missing id, wrong type, broken links, unknown engine rejected
+  ---
+  duration_ms: 2.4291
+  ...
+# Subtest: packages import once; active session retains snapshot
+ok 36 - packages import once; active session retains snapshot
+  ---
+  duration_ms: 5.4566
+  ...
+# Subtest: export strips credentials; restore rotates identity and validates references and path inputs
+ok 37 - export strips credentials; restore rotates identity and validates references and path inputs
+  ---
+  duration_ms: 15.5823
+  ...
+# Subtest: file restart preserves authoritative state and original tokens
+ok 38 - file restart preserves authoritative state and original tokens
+  ---
+  duration_ms: 96.0809
+  ...
+# Subtest: QQ bound identity acts once under duplicate event, no unbound access
+ok 39 - QQ bound identity acts once under duplicate event, no unbound access
+  ---
+  duration_ms: 8.2383
+  ...
+# Subtest: HTTP auth, same-origin boundary, JSON packages, restore and secret projection
+ok 40 - HTTP auth, same-origin boundary, JSON packages, restore and secret projection
+  ---
+  duration_ms: 237.3467
+  ...
+# Subtest: openai: real REST shape and different protocol request
+ok 41 - openai: real REST shape and different protocol request
+  ---
+  duration_ms: 44.076
+  ...
+# Subtest: openai: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+ok 42 - openai: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+  ---
+  duration_ms: 12.8133
+  ...
+# Subtest: anthropic: real REST shape and different protocol request
+ok 43 - anthropic: real REST shape and different protocol request
+  ---
+  duration_ms: 1.0977
+  ...
+# Subtest: anthropic: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+ok 44 - anthropic: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+  ---
+  duration_ms: 25.985
+  ...
+# Subtest: gemini: real REST shape and different protocol request
+ok 45 - gemini: real REST shape and different protocol request
+  ---
+  duration_ms: 2.2611
+  ...
+# Subtest: gemini: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+ok 46 - gemini: errors, truncation/refusal, malformed structure and timeout sanitize upstream
+  ---
+  duration_ms: 13.2827
+  ...
+# Subtest: unconfigured provider fails before transport, no paid fallback
+ok 47 - unconfigured provider fails before transport, no paid fallback
+  ---
+  duration_ms: 1.6628
+  ...
+1..47
+# tests 47
+# suites 0
+# pass 47
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1427.0651
