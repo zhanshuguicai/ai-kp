@@ -81,7 +81,7 @@
             <option value="xhigh">xhigh</option>
           </select></label>
           <input id="pv-max" type="number" min="256" max="64000" step="1" placeholder="单次输出上限（token，留空用默认）">
-          <p class="muted small">设置保存在本机数据库，优先于 .env；API key 不会回显。推理强度对 OpenRouter 和 OpenAI 生效。</p>
+          <p class="muted small">设置保存在本机数据库，优先于 .env；API key 不会回显。推理强度对 OpenRouter、OpenAI 和 DeepSeek 生效（DeepSeek 选 none 会关闭思考）。</p>
           <button type="submit">保存</button>
         </form>
         <ul id="providers" class="list small"></ul>

@@ -44,7 +44,8 @@ export async function listModels(id: ProviderId, config: ProviderConfig, fetcher
         });
       break;
     }
-    case "openai": {
+    case "openai":
+    case "deepseek": {
       const j = await getJson(fetcher, id, `${base}/models`, { authorization: `Bearer ${key}` }, LIST_TIMEOUT_MS);
       out = (Array.isArray(j?.data) ? j.data : []).filter((m: any) => typeof m?.id === "string").map((m: any) => ({ id: m.id }));
       break;

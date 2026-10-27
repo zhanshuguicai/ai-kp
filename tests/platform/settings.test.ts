@@ -124,3 +124,55 @@ test("a campaign can switch its main provider; the old model name is dropped unl
   assert.deepEqual(platform.models(store.getCampaign(campaign.id)).main, { provider: "openrouter", model: "google/gemini-3.8-flash" });
   assert.throws(() => platform.setModels(campaign.id, { provider: "skynet" }), /provider/);
 });
+
+// ---------------- DeepSeek ----------------
+
+test("DeepSeek: Chat Completions at api.deepseek.com, thinking controls, reasoning_content replayed with tools", async () => {
+  const toolCalls = [{ id: "t1", type: "function", function: { name: "reply", arguments: '{"text":"好"}' } }];
+  const { fetcher, sent } = fakeFetch([
+    {
+      choices: [{ message: { role: "assistant", content: "", reasoning_content: "先想一想", tool_calls: toolCalls }, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 1000, completion_tokens: 80, prompt_cache_hit_tokens: 700, prompt_cache_miss_tokens: 300 },
+    },
+    ok,
+  ]);
+  const config = resolveProviderConfig("deepseek", { apiKey: "dk", reasoningEffort: "high" }, {});
+  assert.equal(config.model, "deepseek-v4-pro");
+  const p = createProvider("deepseek", config, fetcher);
+  const r = await p.step({ system: "SYS", systemParts: { stable: "A", dynamic: "B" }, history: [user], tools });
+  assert.equal(r.usage!.cached, 700, "cache hits come from prompt_cache_hit_tokens");
+  assert.equal(r.usage!.cost, undefined);
+  const first = sent[0];
+  assert.equal(first.url, "https://api.deepseek.com/chat/completions");
+  assert.equal(first.headers.authorization, "Bearer dk");
+  assert.deepEqual(first.body.thinking, { type: "enabled" });
+  assert.equal(first.body.reasoning_effort, "high");
+  assert.equal(first.body.max_tokens, 8000);
+  assert.deepEqual(first.body.messages[0], { role: "system", content: "SYS" });
+
+  await p.step({
+    system: "SYS",
+    history: [user, { role: "assistant", native: r.native }, { role: "tool", results: [{ id: "t1", name: "reply", content: '{"ok":true}', isError: false }] }],
+    tools,
+  });
+  assert.deepEqual(sent[1].body.messages[2], { role: "assistant", content: "", tool_calls: toolCalls, reasoning_content: "先想一想" }, "DeepSeek rejects tool follow-ups without it");
+
+  const off = fakeFetch([ok]);
+  await createProvider("deepseek", resolveProviderConfig("deepseek", { apiKey: "dk", reasoningEffort: "none" }, {}), off.fetcher).complete({ system: "s", prompt: "p" });
+  assert.deepEqual(off.sent[0].body.thinking, { type: "disabled" });
+  assert.equal(off.sent[0].body.reasoning_effort, undefined);
+});
+
+test("DeepSeek: default aux model, model list, and a campaign can use it", async () => {
+  const { fetcher, sent } = fakeFetch([{ object: "list", data: [{ id: "deepseek-v4-pro" }, { id: "deepseek-flash" }] }]);
+  const models = await listModels("deepseek", resolveProviderConfig("deepseek", { apiKey: "dk" }, {}), fetcher);
+  assert.deepEqual(models.map((m) => m.id), ["deepseek-flash", "deepseek-v4-pro"]);
+  assert.equal(sent[0].url, "https://api.deepseek.com/models");
+
+  const { platform, store, campaign } = setup({ provider: scripted([]) });
+  platform.setModels(campaign.id, { provider: "deepseek" });
+  assert.deepEqual(platform.models(store.getCampaign(campaign.id)), {
+    main: { provider: "deepseek", model: "deepseek-v4-pro" },
+    aux: { provider: "deepseek", model: "deepseek-flash" },
+  });
+});

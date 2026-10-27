@@ -97,8 +97,9 @@
 
 ### API 与模型设置（组织者页面左栏）
 
-- **接口**：OpenRouter、OpenAI、Anthropic、Google Gemini。每个接口可设 API key（不回显，可删除）、接口地址、默认模型、推理强度、单次输出上限；保存在本机数据库，优先于 `.env`。
+- **接口**：OpenRouter、OpenAI、Anthropic、DeepSeek、Google Gemini。每个接口可设 API key（不回显，可删除）、接口地址、默认模型、推理强度、单次输出上限；保存在本机数据库，优先于 `.env`。
 - **OpenAI 接口模式**：`responses`（官方 Responses API，回传加密推理）或 `chat`（Chat Completions，用于兼容接口和第三方中转）。官方地址用 `max_completion_tokens`，其他地址用 `max_tokens`。
+- **DeepSeek**：走 OpenAI 兼容的 Chat Completions（`https://api.deepseek.com`），默认主力 `deepseek-v4-pro`、辅助 `deepseek-flash`。思考模式默认开启，推理强度 none 时发送 `thinking: {type: "disabled"}`；带工具时上一步的 `reasoning_content` 随 assistant 消息原样回传（DeepSeek 要求，否则 400）；缓存命中读 `prompt_cache_hit_tokens`。
 - **模型列表**：`GET /api/v1/providers/:id/models`，服务端用已保存的 key 去拉取，缓存 10 分钟，改设置后失效。OpenRouter 只列支持工具调用的模型并带价格；Gemini 只列能生成内容的模型。页面上所有模型输入框（整理剧本、开团、本团模型）都会按所选接口给出候选。
 - **本团可换主力接口**：`PUT /api/v1/campaigns/:id/models {provider, main, auxProvider, auxModel}`；换接口但没填模型时，主力模型回到新接口的默认值（模型名不能跨接口沿用）。
 

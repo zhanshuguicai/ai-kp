@@ -214,7 +214,7 @@ export class Platform {
     const s = this.store.getScenario(id);
     const b = obj(body);
     const provider = str(b.provider, "provider", 30);
-    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
+    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
     const model = b.model ? str(b.model, "model", 200) : undefined;
     ensure(!model || MODEL_NAME.test(model), "INVALID_INPUT", "model 需为不含空格的模型名");
     ensure(!this.compiling.has(id), "COMPILE_RUNNING", "这个剧本正在编译中", 409);
@@ -263,7 +263,7 @@ export class Platform {
     const system = getRuleSystem(str(b.systemId, "systemId", 60));
     this.store.getScenario(str(b.scenarioId, "scenarioId", 60));
     const provider = str(b.provider, "provider", 30);
-    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
+    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
     ensure(Array.isArray(b.players) && b.players.length >= 1 && b.players.length <= 12, "INVALID_INPUT", "需要 1-12 名玩家");
     const settings: CampaignSettings = normalizeSettings(b.settings);
     if (b.models !== undefined) settings.models = this.parseModels(b.models, settings.models);
@@ -299,7 +299,7 @@ export class Platform {
         next[key] = b[key] || null;
       }
     if (b.auxProvider !== undefined) {
-      ensure(b.auxProvider === null || b.auxProvider === "" || b.auxProvider === "demo" || isProviderId(b.auxProvider), "INVALID_PROVIDER", "auxProvider 需为 demo / openrouter / anthropic / openai / gemini");
+      ensure(b.auxProvider === null || b.auxProvider === "" || b.auxProvider === "demo" || isProviderId(b.auxProvider), "INVALID_PROVIDER", "auxProvider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
       next.auxProvider = b.auxProvider || null;
     }
     return next;
@@ -342,7 +342,7 @@ export class Platform {
     const b = obj(body);
     let provider = c.provider;
     if (b.provider !== undefined && b.provider !== null && b.provider !== "") {
-      ensure(b.provider === "demo" || isProviderId(b.provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
+      ensure(b.provider === "demo" || isProviderId(b.provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
       provider = b.provider as string;
     }
     const models = this.parseModels(body, c.settings.models);

@@ -22,7 +22,7 @@ let scenarios = [];
 let providers = [];
 
 // ---------------- providers & model lists ----------------
-const PROVIDER_LABEL = { openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic", gemini: "Google Gemini", demo: "离线演示" };
+const PROVIDER_LABEL = { openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic", deepseek: "DeepSeek", gemini: "Google Gemini", demo: "离线演示" };
 const providerName = (p) => `${PROVIDER_LABEL[p.id] || p.id}${p.configured ? "" : "（未配置）"}`;
 /** Replace a select's options, keeping the current choice when it still exists. */
 function fillSelect(id, options, fallback) {

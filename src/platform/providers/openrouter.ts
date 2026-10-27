@@ -61,7 +61,8 @@ function usage(u: any): Usage | undefined {
   return {
     input: u.prompt_tokens,
     output: u.completion_tokens,
-    cached: u.prompt_tokens_details?.cached_tokens,
+    // DeepSeek reports cache hits in its own field.
+    cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens,
     cost: typeof u.cost === "number" ? u.cost : undefined,
   };
 }
@@ -79,7 +80,28 @@ export function openaiChatProvider(config: ProviderConfig, fetcher: Fetcher = fe
   return chatCompletionsProvider(config, fetcher, "openai");
 }
 
-function chatCompletionsProvider(config: ProviderConfig, fetcher: Fetcher, flavor: "openrouter" | "openai"): ModelProvider {
+/**
+ * DeepSeek (OpenAI-compatible). Thinking is on by default; effort "none" turns it off. With tools, the
+ * assistant's `reasoning_content` must be sent back on every later request of the turn (else HTTP 400),
+ * which the replayed native message does.
+ */
+export function deepseekProvider(config: ProviderConfig, fetcher: Fetcher = fetch): ModelProvider {
+  return chatCompletionsProvider(config, fetcher, "deepseek");
+}
+
+type Flavor = "openrouter" | "openai" | "deepseek";
+
+function reasoningParams(flavor: Flavor, effort: ProviderConfig["reasoningEffort"]): Record<string, unknown> {
+  if (!effort) return {};
+  if (flavor === "openrouter") return { reasoning: { effort } };
+  if (flavor === "deepseek")
+    return effort === "none"
+      ? { thinking: { type: "disabled" } }
+      : { thinking: { type: "enabled" }, reasoning_effort: effort === "minimal" ? "low" : effort === "xhigh" ? "high" : effort };
+  return effort === "none" ? {} : { reasoning_effort: effort };
+}
+
+function chatCompletionsProvider(config: ProviderConfig, fetcher: Fetcher, flavor: Flavor): ModelProvider {
   const openrouter = flavor === "openrouter";
   const official = /(^|\.)api\.openai\.com$/.test(new URL(config.baseUrl).hostname);
   const limitKey = !openrouter && official ? "max_completion_tokens" : "max_tokens";
@@ -93,13 +115,7 @@ function chatCompletionsProvider(config: ProviderConfig, fetcher: Fetcher, flavo
       {
         model: config.model,
         [limitKey]: max_tokens ?? config.maxTokens,
-        ...(config.reasoningEffort && config.reasoningEffort !== "none"
-          ? openrouter
-            ? { reasoning: { effort: config.reasoningEffort } }
-            : { reasoning_effort: config.reasoningEffort }
-          : openrouter && config.reasoningEffort === "none"
-            ? { reasoning: { effort: "none" } }
-            : {}),
+        ...reasoningParams(flavor, config.reasoningEffort),
         ...rest,
       },
       config.timeoutMs,
@@ -126,6 +142,7 @@ function chatCompletionsProvider(config: ProviderConfig, fetcher: Fetcher, flavo
     if (toolCalls.length) native.tool_calls = toolCalls;
     if (Array.isArray(msg.reasoning_details) && msg.reasoning_details.length) native.reasoning_details = msg.reasoning_details;
     else if (typeof msg.reasoning === "string" && msg.reasoning) native.reasoning = msg.reasoning;
+    if (typeof msg.reasoning_content === "string") native.reasoning_content = msg.reasoning_content;
     const calls = toolCalls.map((c) => ({
       id: String(c.id),
       name: String(c.function?.name),
