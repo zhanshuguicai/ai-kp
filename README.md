@@ -1,6 +1,7 @@
 # AI KP
 
 > **新平台（开发中）**：支持接入剧本、自动压缩上下文、按剧本与玩家行动调整节奏的 KP 平台，内置 7 种规则。
+> **下载**：到 [Releases](https://github.com/zhanshuguicai/ai-kp/releases) 下载最新的 zip，解压后双击 `Start-AI-KP.bat`（只需要装 Node.js 22.13+）。
 > **第一次使用请看 [使用说明](docs/使用说明.md)**（从安装到开团，一步一步）。
 > **版权所有，仅供查看**：未经许可不得复制、修改、分发或用于其他项目，详见 [LICENSE](LICENSE)。
 > 启动：`npm install && npm run build && npm run platform`，打开 http://127.0.0.1:3100 。设计与进度见 [docs/PLATFORM_DESIGN.md](docs/PLATFORM_DESIGN.md)。

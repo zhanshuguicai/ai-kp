@@ -1,0 +1,43 @@
+# Push a tag like v0.4.0 (matching package.json "version") to build, test and publish a release.
+# The zip needs only Node.js 22.13+ to run: no npm install, no build.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows: the zip is made with Compress-Archive so Chinese file names unpack correctly in Explorer.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: node scripts/package-release.mjs release
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "标签 ${{ github.ref_name }} 和 package.json 的版本 $v 不一致" }
+          Compress-Archive -Path "release/ai-kp-v$v" -DestinationPath "ai-kp-v$v.zip"
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "docs/release-notes/${{ github.ref_name }}.md"
+          if (-not (Test-Path $notes)) { throw "缺少发布说明 $notes" }
+          gh release create "${{ github.ref_name }}" "ai-kp-${{ github.ref_name }}.zip" --title "AI KP ${{ github.ref_name }}" --notes-file $notes

@@ -1,6 +1,6 @@
 {
   "name": "ai-kp-local",
-  "version": "0.3.0-half",
+  "version": "0.4.0",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
