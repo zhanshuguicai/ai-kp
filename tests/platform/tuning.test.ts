@@ -93,3 +93,17 @@ test("a failed compression shows our own error message, not the model's output",
   assert.match(c.lastError!, /有效 JSON/);
   assert(!c.lastError!.includes("齿轮"));
 });
+
+test("summaries use low reasoning effort; the main model keeps the configured one", async () => {
+  const { Platform } = await import("../../src/platform/engine.js");
+  const { Store } = await import("../../src/platform/storage/store.js");
+  const bodies: any[] = [];
+  const fetcher = (async (_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "好" }, finish_reason: "stop" }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const platform = new Platform(new Store(":memory:"), { env: { OPENROUTER_API_KEY: "k" }, fetcher });
+  await platform.provider("openrouter", "anthropic/claude-haiku-5.5", "aux").complete({ system: "s", prompt: "p" });
+  await platform.provider("openrouter", undefined, "main").complete({ system: "s", prompt: "p" });
+  assert.deepEqual(bodies.map((b) => b.reasoning?.effort), ["low", "medium"]);
+});

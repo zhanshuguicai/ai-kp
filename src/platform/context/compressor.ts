@@ -16,7 +16,7 @@ const SYSTEM = `你是跑团记录员。把给定的游戏记录压缩成摘要�
 - 两者都按时间顺序，保留人名、地名、物品与线索原文中的专有名词。只输出 JSON。`;
 
 // Reasoning models spend part of the output budget thinking; leave room so summaries are not cut off.
-const SUMMARY_MAX_TOKENS = 4000;
+const SUMMARY_MAX_TOKENS = 8000;
 
 export function parseSummary(raw: string): { public: string; kp: string } {
   const start = raw.indexOf("{");

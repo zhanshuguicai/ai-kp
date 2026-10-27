@@ -114,7 +114,10 @@ export class Platform {
     if (this.opts.providerFactory) return this.opts.providerFactory(id, { role, model: model ?? "" });
     if (id === "demo") return createProvider("demo", undefined);
     const config = this.providerConfig(id);
-    return createProvider(id, { ...config, ...(model ? { model } : {}), ...overrides }, this.opts.fetcher);
+    // Summaries need little thinking; with the main model's effort, reasoning used up the output budget
+    // and summaries came back truncated in live tests.
+    const aux = role === "aux" && config.reasoningEffort ? { reasoningEffort: "low" as const } : {};
+    return createProvider(id, { ...config, ...(model ? { model } : {}), ...aux, ...overrides }, this.opts.fetcher);
   }
   private modelFor(campaign: Campaign, role: "main" | "aux"): ModelProvider {
     const r = this.models(campaign)[role];
