@@ -61,10 +61,11 @@ export function lastToolResults(req: StepRequest) {
   return last.results.map((r) => ({ ...r, body: JSON.parse(r.content) }));
 }
 
-export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; campaignProvider?: string; models?: Record<string, unknown>; env?: NodeJS.ProcessEnv; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean } = {}) {
+export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; compiler?: ModelProvider; campaignProvider?: string; models?: Record<string, unknown>; env?: NodeJS.ProcessEnv; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean } = {}) {
   const store = new Store(":memory:");
   const platform = new Platform(store, {
-    providerFactory: (_id, { role }) => (role === "aux" && opts.aux ? opts.aux : opts.provider!),
+    providerFactory: (_id, { role }) =>
+      role === "aux" && opts.aux ? opts.aux : role === "compile" && opts.compiler ? opts.compiler : opts.provider!,
     env: opts.env ?? {},
     rng: opts.rng,
     autoCompress: opts.autoCompress ?? false,

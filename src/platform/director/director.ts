@@ -22,6 +22,8 @@ export interface DirectorInput {
   /** Outcomes of recent checks, oldest first. */
   recentOutcomes: Outcome[];
   settings: CampaignSettings["director"];
+  /** Compiled clues not found yet, most relevant first. Named in hint directives (KP-only). */
+  pendingClues?: { id: string; text: string; sources: string[] }[];
 }
 
 const clamp = (n: number) => Math.max(1, Math.min(3, n)) as 1 | 2 | 3;
@@ -36,7 +38,14 @@ export function direct(input: DirectorInput): Directive[] {
     out.push({
       kind: "hint",
       strength: clamp(1 + Math.floor((drought - settings.clueDrought) / 2)),
-      reason: `已有 ${drought} 轮没有新线索：换一条途径给出线索（NPC 主动接触、环境细节、检定成功的额外信息），不要让玩家原地打转`,
+      reason:
+        `已有 ${drought} 轮没有新线索：换一条途径给出线索（NPC 主动接触、环境细节、检定成功的额外信息），不要让玩家原地打转` +
+        (input.pendingClues?.length
+          ? `。尚未发现：${input.pendingClues
+              .slice(0, 3)
+              .map((c) => `${c.id}「${c.text.slice(0, 40)}」${c.sources.length ? `（${c.sources.slice(0, 2).join(" / ")}）` : ""}`)
+              .join("；")}`
+          : ""),
     });
 
   let streak = 0;

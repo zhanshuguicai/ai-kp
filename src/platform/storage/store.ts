@@ -29,12 +29,20 @@ export interface GameEvent {
 }
 export type NewEvent = Omit<GameEvent, "seq" | "campaignId" | "createdAt">;
 
+export type CompileStatus = "none" | "running" | "done" | "failed";
 export interface Scenario {
   id: string;
   title: string;
   text: string;
+  /** Hand-written KP brief (API only); the compiler's output lives in `compiled`. */
   brief: string;
   createdAt: string;
+  /** KP-only structured extraction. Never sent to the organizer or players. */
+  compiled: unknown | null;
+  /** Spoiler-free description for choosing a scenario. */
+  blurb: unknown | null;
+  compileStatus: CompileStatus;
+  compileError: string | null;
 }
 export interface ScenarioChunk {
   scenarioId: string;
@@ -166,6 +174,15 @@ export class Store {
       this.db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
     if (!has("characters", "token_hash")) this.db.exec("ALTER TABLE characters ADD COLUMN token_hash TEXT");
     if (!has("campaigns", "revealed_at")) this.db.exec("ALTER TABLE campaigns ADD COLUMN revealed_at TEXT");
+    for (const [column, type] of [
+      ["compiled", "TEXT"],
+      ["blurb", "TEXT"],
+      ["compile_status", "TEXT NOT NULL DEFAULT 'none'"],
+      ["compile_error", "TEXT"],
+    ])
+      if (!has("scenarios", column)) this.db.exec(`ALTER TABLE scenarios ADD COLUMN ${column} ${type}`);
+    // A compile interrupted by a restart cannot resume.
+    this.db.exec("UPDATE scenarios SET compile_status = 'failed', compile_error = '编译被服务重启中断，请重新编译' WHERE compile_status = 'running'");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS characters_by_token ON characters (token_hash) WHERE token_hash IS NOT NULL");
   }
 
@@ -199,7 +216,7 @@ export class Store {
 
   // ---------- scenarios ----------
   addScenario(s: { title: string; text: string; brief: string }, chunks: Omit<ScenarioChunk, "scenarioId">[]): Scenario {
-    const scenario: Scenario = { id: randomUUID(), ...s, createdAt: now() };
+    const scenario: Scenario = { id: randomUUID(), ...s, createdAt: now(), compiled: null, blurb: null, compileStatus: "none", compileError: null };
     this.tx(() => {
       this.db
         .prepare("INSERT INTO scenarios (id, title, text, brief, created_at) VALUES (?, ?, ?, ?, ?)")
@@ -214,12 +231,31 @@ export class Store {
   getScenario(id: string): Scenario {
     const r = this.db.prepare("SELECT * FROM scenarios WHERE id = ?").get(id);
     ensure(r, "NOT_FOUND", "剧本不存在", 404);
-    return { id: String(r.id), title: String(r.title), text: String(r.text), brief: String(r.brief), createdAt: String(r.created_at) };
+    return {
+      id: String(r.id),
+      title: String(r.title),
+      text: String(r.text),
+      brief: String(r.brief),
+      createdAt: String(r.created_at),
+      compiled: r.compiled ? parse(r.compiled) : null,
+      blurb: r.blurb ? parse(r.blurb) : null,
+      compileStatus: (r.compile_status as CompileStatus) ?? "none",
+      compileError: r.compile_error === null || r.compile_error === undefined ? null : String(r.compile_error),
+    };
+  }
+  setCompileStatus(id: string, status: CompileStatus, error: string | null = null) {
+    const res = this.db.prepare("UPDATE scenarios SET compile_status = ?, compile_error = ? WHERE id = ?").run(status, error, id);
+    ensure(Number(res.changes) === 1, "NOT_FOUND", "剧本不存在", 404);
+  }
+  saveCompiled(id: string, compiled: unknown, blurb: unknown) {
+    this.db
+      .prepare("UPDATE scenarios SET compiled = ?, blurb = ?, compile_status = 'done', compile_error = NULL WHERE id = ?")
+      .run(json(compiled), json(blurb), id);
   }
   listScenarios() {
     return this.db
       .prepare(
-        "SELECT s.id, s.title, length(s.text) AS characters, length(s.brief) > 0 AS has_brief, s.created_at, (SELECT count(*) FROM scenario_chunks c WHERE c.scenario_id = s.id) AS chunks FROM scenarios s ORDER BY s.created_at DESC",
+        "SELECT s.id, s.title, length(s.text) AS characters, length(s.brief) > 0 AS has_brief, s.created_at, s.blurb, s.compile_status, s.compile_error, (SELECT count(*) FROM scenario_chunks c WHERE c.scenario_id = s.id) AS chunks FROM scenarios s ORDER BY s.created_at DESC",
       )
       .all()
       .map((r) => ({
@@ -229,6 +265,10 @@ export class Store {
         chunks: Number(r.chunks),
         hasBrief: Boolean(r.has_brief),
         createdAt: String(r.created_at),
+        // Safe to list: the blurb is spoiler-free by construction; the compiled data is not included.
+        blurb: r.blurb ? parse(r.blurb) : null,
+        compileStatus: (r.compile_status as CompileStatus) ?? "none",
+        compileError: r.compile_error === null || r.compile_error === undefined ? null : String(r.compile_error),
       }));
   }
   chunks(scenarioId: string): ScenarioChunk[] {

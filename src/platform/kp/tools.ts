@@ -122,8 +122,11 @@ export function buildKpTools(opts: {
   system: RuleSystem<any>;
   index: ScenarioIndex;
   rng: Rng;
+  /** Clue ids from the compiled scenario, for record_clue's clueId. */
+  clueIds?: string[];
 }): KpTool[] {
   const { system, index, rng } = opts;
+  const clueIds = new Set(opts.clueIds ?? []);
   const rules = ruleToolDefs(system).map((d) => ruleTool(system, d, rng));
   const story: KpTool[] = [
     {
@@ -183,16 +186,22 @@ export function buildKpTools(opts: {
         description: "记录玩家刚刚获得的线索（玩家已知的内容）。同一条线索不要重复记录。",
         parameters: objectSchema({
           text: sch.str("线索内容，以玩家视角描述"),
+          clueId: sch.nstr("剧本整理中的线索编号（如 c3），对应不上则为 null"),
           foundBy: { type: ["array", "null"], items: { type: "string" }, description: "发现者玩家 id 列表，可为 null" },
         }),
       },
       run(args, scratch) {
         const clue = text(args.text, "text", 500);
         if (scratch.state.clues.some((c) => c.text === clue)) bad("这条线索已经记录过");
+        const ref = nullableText(args.clueId, "clueId", 20);
+        if (ref !== undefined) {
+          if (!clueIds.has(ref)) bad(`没有编号为 ${ref} 的线索${clueIds.size ? `；可用编号：${[...clueIds].slice(0, 30).join("、")}` : "（本剧本没有线索编号）"}`);
+          if (scratch.state.clues.some((c) => c.ref === ref)) bad(`线索 ${ref} 已经记录过`);
+        }
         const foundBy = Array.isArray(args.foundBy) ? args.foundBy.filter((x): x is string => typeof x === "string") : [];
         for (const id of foundBy)
           if (!scratch.players.some((p) => p.id === id)) bad(`foundBy 中的 ${id} 不是本团玩家`);
-        scratch.state.clues.push({ id: `c${scratch.state.clues.length + 1}`, text: clue, foundBy, turn: scratch.turn.n });
+        scratch.state.clues.push({ id: `c${scratch.state.clues.length + 1}`, text: clue, foundBy, turn: scratch.turn.n, ...(ref ? { ref } : {}) });
         scratch.state.lastClueTurn = scratch.turn.n;
         event(scratch, { type: "state", actor: null, visibility: "public", text: `获得线索：${clue}`, data: { clue } });
         return { ok: true, totalClues: scratch.state.clues.length };

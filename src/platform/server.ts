@@ -131,6 +131,10 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
           return send(200, { scenarios: platform.store.listScenarios() });
         case "POST scenarios":
           return send(201, { scenario: platform.addScenario(await readBody(req)) });
+        case "GET scenarios/:id":
+          return send(200, { scenario: platform.scenarioSummary(id) });
+        case "POST scenarios/:id/compile":
+          return send(202, { scenario: platform.compileScenario(id, await readBody(req)) });
         case "GET campaigns":
           return send(200, { campaigns: platform.store.listCampaigns() });
         case "POST campaigns": {

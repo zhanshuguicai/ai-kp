@@ -102,6 +102,9 @@ function render() {
     part("已知线索", s.clues.map((c) => c.text)),
     part("人物", Object.entries(s.npcs).map(([n, v]) => `${n}：${v.status}${v.attitude ? ` · ${v.attitude}` : ""}`)),
   );
+  const blurb = view.scenario?.blurb;
+  $("story-box").hidden = !(blurb && (blurb.pitch || blurb.setting));
+  if (blurb) $("story").replaceChildren(...[blurb.pitch, blurb.setting].filter(Boolean).map((t) => el("p", "", t)));
   $("summaries").replaceChildren(
     ...(view.summaries.length ? view.summaries.map((x) => el("p", "", x.text)) : [el("span", "muted", "尚无（团进行得久了会自动生成）")]),
   );

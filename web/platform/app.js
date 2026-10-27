@@ -18,6 +18,7 @@ let campaignId = saved.campaignId || "";
 let view = null;
 let busy = false;
 let poll = null;
+let scenarios = [];
 
 function remember() {
   try { sessionStorage.setItem("aikp-organizer", JSON.stringify({ token, campaignId })); } catch {}
@@ -71,10 +72,59 @@ async function loadAll() {
   const auxOptions = () => [option("", "同主力供应商"), ...prov.providers.map((p) => option(p.id, p.id))];
   $("cp-aux-provider").replaceChildren(...auxOptions());
   $("md-aux-provider").replaceChildren(...auxOptions());
-  $("cp-scenario").replaceChildren(...sc.scenarios.map((s) => option(s.id, s.title)));
-  $("scenarios").replaceChildren(...sc.scenarios.map((s) => el("li", "", `${s.title} · ${s.characters} 字 · ${s.chunks} 段`)));
+  scenarios = sc.scenarios;
+  const keep = $("cp-scenario").value;
+  $("cp-scenario").replaceChildren(...scenarios.map((s) => option(s.id, `${s.title}${s.compileStatus === "done" ? "" : `（${STATUS[s.compileStatus]}）`}`)));
+  if (keep && scenarios.some((s) => s.id === keep)) $("cp-scenario").value = keep;
+  const keepProvider = $("sc-provider").value;
+  $("sc-provider").replaceChildren(...prov.providers.map((p) => option(p.id, `${p.id}${p.configured ? "" : "（未配置）"}`)));
+  $("sc-provider").value = keepProvider || prov.providers.find((p) => p.configured && p.id !== "demo")?.id || "demo";
+  renderScenarios();
+  renderBlurb();
   renderCampaigns(cp.campaigns);
   if (campaignId) await loadCampaign();
+}
+
+const STATUS = { none: "未整理", running: "整理中…", done: "已整理", failed: "整理失败" };
+
+function blurbLines(b) {
+  if (!b) return [];
+  return [
+    b.pitch,
+    b.setting,
+    [b.players && `人数 ${b.players}`, b.duration && `时长 ${b.duration}`, b.tone && `基调 ${b.tone}`, b.recommendedSystem && `规则 ${b.recommendedSystem}`].filter(Boolean).join(" · "),
+    b.contentWarnings?.length ? `内容提醒：${b.contentWarnings.join("、")}` : "",
+  ].filter(Boolean);
+}
+
+function renderScenarios() {
+  $("scenarios").replaceChildren(...(scenarios.length ? scenarios.map((s) => {
+    const li = el("li", "scenario");
+    li.append(el("strong", "", s.title), el("span", `badge ${s.compileStatus === "done" ? "good" : s.compileStatus === "failed" ? "bad" : ""}`, STATUS[s.compileStatus]));
+    li.append(el("div", "muted small", `${s.characters} 字 · ${s.chunks} 段`));
+    for (const line of blurbLines(s.blurb)) li.append(el("div", "small", line));
+    if (s.compileStatus === "failed" && s.compileError) li.append(el("div", "bad small", s.compileError));
+    if (s.compileStatus !== "running") {
+      const b = el("button", "", s.compileStatus === "done" ? "重新整理" : "整理剧本");
+      b.type = "button";
+      b.onclick = () => run(async () => {
+        const body = { provider: $("sc-provider").value };
+        if ($("sc-model").value.trim()) body.model = $("sc-model").value.trim();
+        await api("POST", `/scenarios/${s.id}/compile`, body);
+        notice(`已开始整理《${s.title}》，完成后会显示简介`, true);
+        await loadAll();
+      });
+      li.append(b);
+    }
+    return li;
+  }) : [el("li", "muted", "还没有剧本")]));
+}
+
+function renderBlurb() {
+  const s = scenarios.find((x) => x.id === $("cp-scenario").value);
+  $("cp-blurb").replaceChildren(...(!s ? [] : s.compileStatus !== "done"
+    ? [el("div", "", `这个剧本${STATUS[s.compileStatus]}；没整理的剧本 KP 只能边查原文边主持。`)]
+    : blurbLines(s.blurb).map((t) => el("div", "", t))));
 }
 
 function renderCampaigns(list) {
@@ -260,12 +310,15 @@ $("scenario-form").addEventListener("submit", (e) => {
     const f = $("sc-file").files[0];
     if (!f) throw new Error("请选择剧本文件");
     const text = await f.text();
-    const r = await api("POST", "/scenarios", { title: $("sc-title").value || f.name.replace(/\.(txt|md)$/i, ""), text });
-    notice(`已导入《${r.scenario.title}》：${r.scenario.characters} 字，切成 ${r.scenario.chunks} 段`, true);
+    const compile = { provider: $("sc-provider").value };
+    if ($("sc-model").value.trim()) compile.model = $("sc-model").value.trim();
+    const r = await api("POST", "/scenarios", { title: $("sc-title").value || f.name.replace(/\.(txt|md)$/i, ""), text, compile });
+    notice(`已导入《${r.scenario.title}》：${r.scenario.characters} 字。正在整理，完成后显示简介`, true);
     $("scenario-form").reset();
     await loadAll();
   });
 });
+$("cp-scenario").addEventListener("change", renderBlurb);
 $("sc-file").addEventListener("change", () => {
   const f = $("sc-file").files[0];
   if (f && !$("sc-title").value) $("sc-title").value = f.name.replace(/\.(txt|md)$/i, "");
@@ -357,7 +410,10 @@ $("compress").addEventListener("click", () => run(async () => {
 
 // Refresh the public log while players are playing.
 poll = setInterval(() => {
-  if (!busy && campaignId && token && !document.hidden) loadCampaign().catch(() => {});
+  if (busy || !token || document.hidden) return;
+  // While a scenario is being compiled, refresh the scenario list too.
+  if (scenarios.some((s) => s.compileStatus === "running")) loadAll().catch(() => {});
+  else if (campaignId) loadCampaign().catch(() => {});
 }, 5000);
 
 $("token").value = token;

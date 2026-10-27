@@ -26,6 +26,7 @@ import { runAgent } from "./kp/agent.js";
 import { direct, type Directive } from "./director/director.js";
 import { assembleContext } from "./context/assembler.js";
 import { compress } from "./context/compressor.js";
+import { compileScenario, demoCompile, renderGuide, type CompiledScenario, type ScenarioBlurb } from "./scenario/compiler.js";
 
 export const MESSAGE_KINDS = ["dialogue", "action", "ooc", "auto"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
@@ -42,7 +43,9 @@ export interface PlatformOptions {
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export type ModelRole = "main" | "aux";
+export type ModelRole = "main" | "aux" | "compile";
+/** Reading a whole scenario can take minutes. */
+const COMPILE_TIMEOUT_MS = 600_000;
 export interface ResolvedModels {
   main: { provider: string; model: string };
   aux: { provider: string; model: string };
@@ -70,6 +73,7 @@ const obj = (v: unknown) => {
 export class Platform {
   private queues = new Map<string, Promise<unknown>>();
   private compressing = new Map<string, Promise<void>>();
+  private compiling = new Map<string, Promise<void>>();
   private indexes = new Map<string, ScenarioIndex>();
   readonly env: NodeJS.ProcessEnv;
   private rng: Rng;
@@ -104,13 +108,13 @@ export class Platform {
       },
     };
   }
-  provider(id: string, model?: string, role: ModelRole = "main"): ModelProvider {
+  provider(id: string, model?: string, role: ModelRole = "main", overrides: Partial<ProviderConfig> = {}): ModelProvider {
     if (this.opts.providerFactory) return this.opts.providerFactory(id, { role, model: model ?? "" });
     if (id === "demo") return createProvider("demo", undefined);
     const config = this.providerConfig(id);
-    return createProvider(id, model ? { ...config, model } : config, this.opts.fetcher);
+    return createProvider(id, { ...config, ...(model ? { model } : {}), ...overrides }, this.opts.fetcher);
   }
-  private modelFor(campaign: Campaign, role: ModelRole): ModelProvider {
+  private modelFor(campaign: Campaign, role: "main" | "aux"): ModelProvider {
     const r = this.models(campaign)[role];
     return this.provider(r.provider, r.model, role);
   }
@@ -150,6 +154,10 @@ export class Platform {
   }
 
   // ---------------- scenarios ----------------
+  /**
+   * Import a scenario. With `compile: { provider, model? }` the KP guide and blurb are built in the
+   * background; the response never contains scenario text or compiled content.
+   */
   addScenario(body: unknown) {
     const b = obj(body);
     const title = str(b.title, "title", 200);
@@ -157,7 +165,58 @@ export class Platform {
     const brief = b.brief ? str(b.brief, "brief", 20_000) : "";
     const chunks = chunkScenario(text);
     const s = this.store.addScenario({ title, text, brief }, chunks);
-    return { id: s.id, title, characters: text.length, chunks: chunks.length, hasBrief: !!brief };
+    if (b.compile !== undefined && b.compile !== null) this.compileScenario(s.id, b.compile);
+    return this.scenarioSummary(s.id);
+  }
+  /** Spoiler-free scenario info: size, compile status and blurb only. */
+  scenarioSummary(id: string) {
+    const s = this.store.getScenario(id);
+    return {
+      id: s.id,
+      title: s.title,
+      characters: s.text.length,
+      chunks: this.index(id).size,
+      hasBrief: !!s.brief,
+      compileStatus: s.compileStatus,
+      compileError: s.compileError,
+      blurb: s.blurb as ScenarioBlurb | null,
+    };
+  }
+  /** Start (or restart) compiling a scenario in the background. */
+  compileScenario(id: string, body: unknown) {
+    const s = this.store.getScenario(id);
+    const b = obj(body);
+    const provider = str(b.provider, "provider", 30);
+    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
+    const model = b.model ? str(b.model, "model", 200) : undefined;
+    ensure(!model || MODEL_NAME.test(model), "INVALID_INPUT", "model 需为不含空格的模型名");
+    ensure(!this.compiling.has(id), "COMPILE_RUNNING", "这个剧本正在编译中", 409);
+    // Fail fast on missing credentials instead of in the background.
+    const llm = provider === "demo" ? null : this.provider(provider, model, "compile", { timeoutMs: COMPILE_TIMEOUT_MS });
+    this.store.setCompileStatus(id, "running");
+    const job = (async () => {
+      try {
+        const out = llm ? await compileScenario(llm, s.title, s.text, this.store.chunks(id)) : demoCompile(s.title);
+        this.store.saveCompiled(id, out.compiled, out.blurb);
+      } catch (e) {
+        // Error messages are ours (codes and generic text), never model output or scenario text.
+        const message = e instanceof PlatformError ? e.message : "编译时发生内部错误";
+        if (!(e instanceof PlatformError)) console.error(e);
+        this.store.setCompileStatus(id, "failed", message);
+      } finally {
+        this.compiling.delete(id);
+      }
+    })();
+    this.compiling.set(id, job);
+    return this.scenarioSummary(id);
+  }
+  /** Wait for a background compile (tests, shutdown). */
+  async compileIdle(id: string) {
+    await this.compiling.get(id);
+  }
+  compiled(scenarioId: string): CompiledScenario | null {
+    const s = this.store.getScenario(scenarioId);
+    return s.compileStatus === "done" ? (s.compiled as CompiledScenario) : null;
   }
   index(scenarioId: string): ScenarioIndex {
     let idx = this.indexes.get(scenarioId);
@@ -190,10 +249,14 @@ export class Platform {
       };
     });
     ensure(new Set(players.map((p) => p.id)).size === players.length, "INVALID_INPUT", "玩家 id 不能重复");
+    // Threat clocks from the compiled scenario start empty; they are KP-only.
+    const state = initialState();
+    for (const k of this.compiled(b.scenarioId)?.clocks ?? [])
+      state.clocks[k.name] = { filled: 0, size: k.size, note: k.consequence };
     return this.store.tx(() => {
       const c = this.store.createCampaign(
         { name: str(b.name, "name", 100), systemId: system.id, scenarioId: b.scenarioId, provider, settings },
-        initialState(),
+        state,
       );
       for (const p of players) this.store.upsertCharacter({ campaignId: c.id, playerId: p.id, name: p.name, sheet: p.sheet });
       return c;
@@ -283,7 +346,7 @@ export class Platform {
       },
       models: this.safeModels(campaign),
       usage: this.store.usageTotals(campaignId),
-      scenario: { id: scenario.id, title: scenario.title, characters: scenario.text.length, chunks: this.index(scenario.id).size },
+      scenario: this.scenarioSummary(scenario.id),
       players: characters.map((c) => ({ id: c.playerId, name: c.name, invited: !!c.invited, hasSheet: c.sheet !== null })),
       turns: turns.map((t) => ({
         n: t.n,
@@ -316,6 +379,8 @@ export class Platform {
     return {
       ...pub,
       me: { id: me.playerId, name: me.name, sheet: me.sheet, exampleSheet: system.exampleSheet(), systemName: system.name },
+      // Spoiler-free by construction (see compiler.blurbLeaks); never the compiled guide.
+      scenario: (({ title, blurb }) => ({ title, blurb }))(this.scenarioSummary(this.store.getCampaign(campaignId).scenarioId)),
       events: this.store.events(campaignId, { limit: 300, forPlayer: playerId }),
     };
   }
@@ -467,7 +532,8 @@ export class Platform {
       const system = getRuleSystem(campaign.systemId);
       const scenario = this.store.getScenario(campaign.scenarioId);
       const index = this.index(campaign.scenarioId);
-      directives = this.directives(campaign, turn, state);
+      const compiled = this.compiled(campaign.scenarioId);
+      directives = this.directives(campaign, turn, state, compiled);
       const recent = this.store.events(campaignId, { afterSeq: this.store.summarizedThrough(campaignId) });
       const ctx = assembleContext({
         system,
@@ -479,6 +545,7 @@ export class Platform {
         recent,
         directives,
         query: input.text,
+        guide: compiled ? renderGuide(compiled, campaign.settings.budgets.scenario) : "",
         budgets: campaign.settings.budgets,
       });
       const player = characters.find((c) => c.playerId === input.playerId);
@@ -486,7 +553,7 @@ export class Platform {
         input.kind === "start"
           ? "请开场：交代背景，描述开场场景，抛出主线钩子；并用 update_scene、set_thread、update_npc 建立初始状态。"
           : JSON.stringify({ turn: turn.n, playerId: input.playerId, playerName: player?.name, kind: input.kind, text: input.text });
-      const tools = buildKpTools({ system, index, rng: this.rng });
+      const tools = buildKpTools({ system, index, rng: this.rng, clueIds: compiled?.clues.map((c) => c.id) });
       const trace = await runAgent(this.modelFor(campaign, "main"), { system: ctx.system, parts: ctx.parts }, userInput, tools, scratch);
       const reply = scratch.reply!;
 
@@ -536,7 +603,14 @@ export class Platform {
     return this.turnResult(this.store.findTurn(campaignId, input.messageId)!, false);
   }
 
-  directives(campaign: Campaign, turn: Turn, state: WorldState): Directive[] {
+  directives(campaign: Campaign, turn: Turn, state: WorldState, compiled: CompiledScenario | null = null): Directive[] {
+    // Compiled clues not found yet; those located in the current scene first.
+    const found = new Set(state.clues.map((c) => c.ref).filter(Boolean));
+    const scene = state.scene.name;
+    const here = (location: string) => !!location && !!scene && (scene.includes(location) || location.includes(scene));
+    const pendingClues = (compiled?.clues ?? [])
+      .filter((c) => !found.has(c.id))
+      .sort((a, b) => Number(here(b.location)) - Number(here(a.location)));
     const turns = this.store.turns(campaign.id, 200);
     const lastSpoke: Record<string, number> = {};
     for (const t of turns) if (t.playerId) lastSpoke[t.playerId] = t.n;
@@ -551,6 +625,7 @@ export class Platform {
       lastSpoke,
       recentOutcomes,
       settings: campaign.settings.director,
+      pendingClues,
     });
   }
 

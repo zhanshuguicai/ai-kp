@@ -30,10 +30,12 @@
         <form id="scenario-form" class="stack">
           <input id="sc-title" placeholder="剧本标题" required>
           <label class="file">选择 TXT / Markdown 文件<input id="sc-file" type="file" accept=".txt,.md,text/plain,text/markdown" required></label>
-          <p class="muted small">只上传，不显示原文，避免剧透。</p>
+          <label>用于整理剧本的模型<select id="sc-provider"></select></label>
+          <input id="sc-model" placeholder="模型（留空用供应商默认，建议用主力模型）">
+          <p class="muted small">只上传，不显示原文。导入后由模型整理出 KP 指南（你看不到）和一份无剧透简介。</p>
           <button type="submit">导入</button>
         </form>
-        <ul id="scenarios" class="list small"></ul>
+        <ul id="scenarios" class="list scenarios"></ul>
       </details>
 
       <details>
@@ -41,6 +43,7 @@
         <form id="campaign-form" class="stack">
           <input id="cp-name" placeholder="团名" required>
           <label>剧本<select id="cp-scenario" required></select></label>
+          <div id="cp-blurb" class="blurb muted small"></div>
           <label>规则<select id="cp-system"></select></label>
           <label>模型供应商<select id="cp-provider"></select></label>
           <input id="cp-main" placeholder="主力模型（留空用供应商默认）">

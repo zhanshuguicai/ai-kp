@@ -6,7 +6,8 @@ export type ThreadStatus = "open" | "done" | "failed";
 export interface WorldState {
   scene: { name: string; description: string; sinceTurn: number };
   threads: { title: string; kind: "main" | "side"; status: ThreadStatus }[];
-  clues: { id: string; text: string; foundBy: string[]; turn: number }[];
+  /** `ref` links to a compiled scenario clue id when the KP gave one. */
+  clues: { id: string; text: string; foundBy: string[]; turn: number; ref?: string }[];
   npcs: Record<string, { status: string; attitude: string; lastSeenTurn: number }>;
   /** Threat clocks; KP only. */
   clocks: Record<string, { filled: number; size: number; note: string }>;

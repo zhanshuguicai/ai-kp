@@ -132,3 +132,8 @@ button.danger:hover { background: #4a2a2a; }
   .layout.play .composer { grid-template-columns: 1fr auto; }
   .layout.play .composer textarea { grid-column: 1 / -1; }
 }
+.list.scenarios li { border: 1px solid var(--line); display: grid; gap: 3px; }
+.list.scenarios li .badge { justify-self: start; }
+.list.scenarios li button { justify-self: start; width: auto; margin-top: 4px; }
+.blurb { display: grid; gap: 3px; }
+.bad { color: var(--bad); }

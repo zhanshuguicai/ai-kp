@@ -18,6 +18,8 @@ export interface ContextInput {
   summaries: Summary[];
   recent: GameEvent[];
   directives: Directive[];
+  /** KP guide rendered from the compiled scenario (empty when not compiled). */
+  guide?: string;
   /** Text used to retrieve relevant scenario chunks (player input etc.). */
   query: string;
   budgets: CampaignSettings["budgets"];
@@ -85,18 +87,24 @@ export function assembleContext(ci: ContextInput): BuiltContext {
     return `\n\n## ${title}\n${body}`;
   };
 
-  // L1 scenario: brief always, then retrieved chunks; chunks about the current scene come first.
-  const brief = clipToTokens(ci.scenario.brief, Math.floor(ci.budgets.scenario / 3));
+  // L1 scenario: compiled guide and brief always, then retrieved chunks; current-scene chunks first.
+  // The guide gets up to half the scenario budget; a hand-written brief shares what is left.
+  const guide = ci.guide ? clipToTokens(ci.guide, Math.floor(ci.budgets.scenario / 2)) : "";
+  const brief = clipToTokens(ci.scenario.brief, Math.floor(ci.budgets.scenario / (guide ? 6 : 3)));
   const sceneHits = ci.index.search(ci.state.scene.name, 2).map((h) => h.chunk.idx);
   const chunks = ci.index.select(
     `${ci.query} ${ci.state.scene.name}`,
-    ci.budgets.scenario - estimateTokens(brief),
+    Math.max(0, ci.budgets.scenario - estimateTokens(brief) - estimateTokens(guide)),
     sceneHits,
   );
   const scenarioHeader = [
     `剧本《${ci.scenario.title}》，原文共 ${ci.index.size} 段，可用 query_scenario 查阅其余部分。`,
-    brief ? `KP 概要（核心真相与主持要点）：\n${brief}` : "（没有 KP 概要，请依赖原文）",
-  ].join("\n\n");
+    guide ? `KP 指南（由剧本整理，仅 KP 可见）：\n${guide}` : "",
+    brief ? `KP 概要（核心真相与主持要点）：\n${brief}` : "",
+    !guide && !brief ? "（剧本尚未整理，请依赖原文与 query_scenario）" : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const chunkText = chunks.length
     ? chunks.map((c) => `〔段${c.idx}｜${c.heading || "无标题"}〕\n${c.text}`).join("\n\n")
     : "（本轮没有检索到相关段落）";
