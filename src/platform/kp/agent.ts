@@ -3,7 +3,7 @@
 // - a text-only answer is accepted as the reply (models often narrate without calling reply);
 // - only truncation, refusal, too many errors or too many rounds fail the turn.
 import { PlatformError } from "../errors.js";
-import type { HistoryItem, ModelProvider, ToolResult } from "../providers/types.js";
+import type { HistoryItem, ModelProvider, SystemParts, ToolResult, Usage } from "../providers/types.js";
 import { toolErrorPayload, type KpTool, type TurnScratch } from "./tools.js";
 
 export interface AgentOptions {
@@ -16,11 +16,13 @@ export interface AgentTrace {
   rounds: number;
   toolCalls: { name: string; ok: boolean; error?: string }[];
   via: "reply_tool" | "text";
+  /** Summed over all model calls of the turn. */
+  usage: Required<Pick<Usage, "input" | "output" | "cached">> & { cost: number | null; calls: number };
 }
 
 export async function runAgent(
   provider: ModelProvider,
-  system: string,
+  prompt: { system: string; parts?: SystemParts },
   input: string,
   tools: KpTool[],
   scratch: TurnScratch,
@@ -30,12 +32,23 @@ export async function runAgent(
   const maxErrors = opts.maxToolErrors ?? 6;
   const maxCalls = opts.maxCallsPerRound ?? 16;
   const history: HistoryItem[] = [{ role: "user", text: input }];
-  const trace: AgentTrace = { rounds: 0, toolCalls: [], via: "reply_tool" };
+  const trace: AgentTrace = {
+    rounds: 0,
+    toolCalls: [],
+    via: "reply_tool",
+    usage: { input: 0, output: 0, cached: 0, cost: null, calls: 0 },
+  };
   let errors = 0;
 
   for (let round = 0; round < maxRounds; round++) {
     trace.rounds = round + 1;
-    const step = await provider.step({ system, history, tools: tools.map((t) => t.def) });
+    const step = await provider.step({ system: prompt.system, systemParts: prompt.parts, history, tools: tools.map((t) => t.def) });
+    const u = step.usage;
+    trace.usage.calls++;
+    trace.usage.input += u?.input ?? 0;
+    trace.usage.output += u?.output ?? 0;
+    trace.usage.cached += u?.cached ?? 0;
+    if (typeof u?.cost === "number") trace.usage.cost = (trace.usage.cost ?? 0) + u.cost;
     if (step.stop === "max_tokens")
       throw new PlatformError("PROVIDER_INCOMPLETE", "模型输出被截断（max tokens），本轮未发布", 502);
     if (step.stop === "refused")

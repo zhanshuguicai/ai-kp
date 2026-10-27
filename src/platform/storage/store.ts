@@ -48,6 +48,8 @@ export interface CampaignSettings {
   /** Token budgets for each context layer. */
   budgets: { scenario: number; state: number; summaries: number; recent: number };
   director: { clueDrought: number; sceneLength: number; quietTurns: number; failStreak: number };
+  /** Per-campaign model choice; null = provider default. Aux handles summaries and other cheap work. */
+  models: { main: string | null; auxProvider: string | null; auxModel: string | null };
 }
 export interface Campaign {
   id: string;
@@ -92,7 +94,17 @@ export interface Summary {
 export const DEFAULT_SETTINGS: CampaignSettings = {
   budgets: { scenario: 6000, state: 1500, summaries: 4000, recent: 8000 },
   director: { clueDrought: 4, sceneLength: 8, quietTurns: 4, failStreak: 3 },
+  models: { main: null, auxProvider: null, auxModel: null },
 };
+
+/** Fill settings saved by older versions with current defaults. */
+export function normalizeSettings(raw: any): CampaignSettings {
+  return {
+    budgets: { ...DEFAULT_SETTINGS.budgets, ...(raw?.budgets ?? {}) },
+    director: { ...DEFAULT_SETTINGS.director, ...(raw?.director ?? {}) },
+    models: { ...DEFAULT_SETTINGS.models, ...(raw?.models ?? {}) },
+  };
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -240,10 +252,36 @@ export class Store {
       systemId: String(r.system_id),
       scenarioId: String(r.scenario_id),
       provider: String(r.provider),
-      settings: parse(r.settings),
+      settings: normalizeSettings(parse(r.settings)),
       createdAt: String(r.created_at),
     };
   }
+  updateSettings(campaignId: string, settings: CampaignSettings) {
+    const res = this.db.prepare("UPDATE campaigns SET settings = ? WHERE id = ?").run(json(settings), campaignId);
+    ensure(Number(res.changes) === 1, "NOT_FOUND", "团不存在", 404);
+  }
+
+  /** Token and cost totals over all completed turns (recorded on each turn's directive event). */
+  usageTotals(campaignId: string) {
+    const r = this.db
+      .prepare(
+        `SELECT count(*) AS turns,
+           sum(json_extract(data, '$.trace.usage.input')) AS input,
+           sum(json_extract(data, '$.trace.usage.output')) AS output,
+           sum(json_extract(data, '$.trace.usage.cached')) AS cached,
+           sum(json_extract(data, '$.trace.usage.cost')) AS cost
+         FROM events WHERE campaign_id = ? AND type = 'directive'`,
+      )
+      .get(campaignId);
+    return {
+      turns: Number(r?.turns ?? 0),
+      input: Number(r?.input ?? 0),
+      output: Number(r?.output ?? 0),
+      cached: Number(r?.cached ?? 0),
+      cost: r?.cost === null || r?.cost === undefined ? null : Number(r.cost),
+    };
+  }
+
   listCampaigns() {
     return this.db
       .prepare(

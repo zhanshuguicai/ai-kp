@@ -119,6 +119,8 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
           return send(200, platform.kpView(id));
         case "GET campaigns/:id/public":
           return send(200, platform.publicView(id));
+        case "PUT campaigns/:id/models":
+          return send(200, { models: platform.setModels(id, await readBody(req)) });
         case "PUT campaigns/:id/characters/:sub":
           return send(200, { characters: platform.setCharacter(id, decodeURIComponent(sub), await readBody(req)) });
         case "POST campaigns/:id/messages":

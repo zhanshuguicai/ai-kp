@@ -61,10 +61,11 @@ export function lastToolResults(req: StepRequest) {
   return last.results.map((r) => ({ ...r, body: JSON.parse(r.content) }));
 }
 
-export function setup(opts: { provider?: ModelProvider; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean } = {}) {
+export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; campaignProvider?: string; models?: Record<string, unknown>; env?: NodeJS.ProcessEnv; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean } = {}) {
   const store = new Store(":memory:");
   const platform = new Platform(store, {
-    providerFactory: () => opts.provider!,
+    providerFactory: (_id, { role }) => (role === "aux" && opts.aux ? opts.aux : opts.provider!),
+    env: opts.env ?? {},
     rng: opts.rng,
     autoCompress: opts.autoCompress ?? false,
   });
@@ -73,7 +74,8 @@ export function setup(opts: { provider?: ModelProvider; rng?: Rng; systemId?: st
     name: "测试团",
     systemId: opts.systemId ?? "coc7",
     scenarioId: scenario.id,
-    provider: "demo",
+    provider: opts.campaignProvider ?? "demo",
+    models: opts.models,
     players: [
       { id: "p1", name: "林雾", sheet: opts.sheets?.p1 ?? null },
       { id: "p2", name: "周岚", sheet: opts.sheets?.p2 ?? null },

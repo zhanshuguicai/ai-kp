@@ -49,7 +49,11 @@ export function anthropicProvider(config: ProviderConfig, fetcher: Fetcher = fet
         .map((b: any) => ({ id: String(b.id), name: String(b.name), args: b.input ?? {} })),
       native: data.content,
       stop: STOP[data.stop_reason] ?? "other",
-      usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+      usage: {
+        input: (data.usage?.input_tokens ?? 0) + (data.usage?.cache_read_input_tokens ?? 0) + (data.usage?.cache_creation_input_tokens ?? 0),
+        output: data.usage?.output_tokens,
+        cached: data.usage?.cache_read_input_tokens,
+      },
     };
   };
   return {
@@ -59,7 +63,11 @@ export function anthropicProvider(config: ProviderConfig, fetcher: Fetcher = fet
       return read(
         await call({
           model: config.model,
-          system: req.system,
+          system: req.systemParts
+            ? [req.systemParts.stable, req.systemParts.dynamic]
+                .filter((t) => t.trim())
+                .map((text) => ({ type: "text", text, cache_control: { type: "ephemeral" } }))
+            : req.system,
           messages: messages(req.history),
           tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
           max_tokens: req.maxTokens ?? config.maxTokens,

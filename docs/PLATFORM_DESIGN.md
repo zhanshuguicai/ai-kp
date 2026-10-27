@@ -77,7 +77,7 @@
 |---|---|---|
 | 存储 | `storage/store.ts` | 事件日志（只追加）、回合、世界状态（带版本号）、摘要、剧本分块、角色卡、设置 |
 | 剧本 | `scenario/chunker.ts`、`retriever.ts` | 按标题层级分块（Markdown、第X章、【】、一、），中文双字切词 + BM25 检索 |
-| 模型 | `providers/` | Anthropic Messages、OpenAI Responses（无状态，回传加密推理）、Gemini generateContent；统一为 `step()` / `complete()` |
+| 模型 | `providers/` | OpenRouter Chat Completions（推荐）、Anthropic Messages、OpenAI Responses（无状态，回传加密推理）、Gemini generateContent；统一为 `step()` / `complete()` |
 | KP | `kp/tools.ts`、`agent.ts`、`state.ts` | 规则工具（可暗骰）+ 剧情工具（场景/线索/NPC/剧情线/威胁时钟/紧张度/私密笔记/检索原文/回复与私聊） |
 | 上下文 | `context/assembler.ts`、`compressor.ts` | L0–L4 分层预算；超预算时后台生成片段摘要，片段多了再合并成章节 |
 | 导演 | `director/director.ts` | 卡关、连续失败、时钟将满、场景过长、冷落玩家、主线结束 → 节奏建议 |
@@ -85,6 +85,15 @@
 | 接口 | `server.ts` | `/api/v1`，仅本机，管理令牌；网页在 `web/platform/` |
 
 工具循环的容错：参数错误、未知工具、JSON 损坏都作为错误结果回给模型重试（超过 6 次才失败）；模型只输出文本时直接当作回复；只有输出被截断、拒绝或 8 步内没有回复才判定本轮失败。
+
+### 模型选择（OpenRouter）
+
+- 默认主力：`anthropic/claude-opus-5.5`，推理强度 medium，输出上限 8000（推理 token 也计入上限）。
+- 默认辅助（摘要）：OpenRouter 用 `anthropic/claude-haiku-5.5`，直连 Anthropic 用 `claude-haiku-5-5`；其他供应商沿用主力模型。
+- 每个团可以单独设置主力模型、辅助模型的供应商和型号（`PUT /api/v1/campaigns/:id/models`，网页右侧"模型与用量"）。留空即用默认。
+- 工具调用时，模型返回的 `reasoning_details` 原样放回发起调用的 assistant 消息，保证 Claude/Gemini 多步推理连贯。
+- 提示缓存：上下文分成"稳定段"（人设、规则、KP 概要）和"变化段"（本轮原文、状态、摘要、近期记录、节奏建议）。Claude 两段各加一个缓存断点；Gemini/OpenAI 依靠前缀自动缓存。
+- 每轮记录输入/输出/缓存命中 token 和费用（OpenRouter 返回 `usage.cost`），网页显示全团累计。摘要调用的用量暂未统计。
 
 已知限制：
 - API key 以明文存在本机 SQLite 中，按敏感文件对待。

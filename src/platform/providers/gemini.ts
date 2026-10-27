@@ -58,7 +58,11 @@ export function geminiProvider(config: ProviderConfig, fetcher: Fetcher = fetch)
       calls,
       native: { role: "model", parts },
       stop: calls.length ? "tool_use" : (STOP[candidate.finishReason] ?? "other"),
-      usage: { input: data.usageMetadata?.promptTokenCount, output: data.usageMetadata?.candidatesTokenCount },
+      usage: {
+        input: data.usageMetadata?.promptTokenCount,
+        output: data.usageMetadata?.candidatesTokenCount,
+        cached: data.usageMetadata?.cachedContentTokenCount,
+      },
     };
   };
   return {

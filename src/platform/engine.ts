@@ -2,13 +2,22 @@
 //   player message → dedupe → assemble layered context → KP tool loop → one transaction commit
 //   → background compression.
 import { PlatformError, ensure } from "./errors.js";
-import { Store, DEFAULT_SETTINGS, type Campaign, type CampaignSettings, type GameEvent, type NewEvent, type Turn } from "./storage/store.js";
+import { Store, normalizeSettings, type Campaign, type CampaignSettings, type GameEvent, type NewEvent, type Turn } from "./storage/store.js";
 import { chunkScenario } from "./scenario/chunker.js";
 import { ScenarioIndex } from "./scenario/retriever.js";
 import { getRuleSystem, listRuleSystems } from "./rules/registry.js";
 import { cryptoRng } from "./rules/rng.js";
 import type { Outcome, Rng } from "./rules/types.js";
-import { createProvider, isProviderId, PROVIDER_IDS, resolveProviderConfig, type ProviderConfig, type ModelProvider } from "./providers/index.js";
+import {
+  AUX_DEFAULTS,
+  createProvider,
+  isProviderId,
+  isReasoningEffort,
+  PROVIDER_IDS,
+  resolveProviderConfig,
+  type ProviderConfig,
+  type ModelProvider,
+} from "./providers/index.js";
 import type { Fetcher } from "./providers/http.js";
 import { initialState, publicState, type WorldState } from "./kp/state.js";
 import { buildKpTools, type TurnScratch } from "./kp/tools.js";
@@ -25,10 +34,18 @@ export interface PlatformOptions {
   fetcher?: Fetcher;
   rng?: Rng;
   /** Override model creation (tests). */
-  providerFactory?: (id: string) => ModelProvider;
+  providerFactory?: (id: string, opts: { role: ModelRole; model: string }) => ModelProvider;
   /** Run compression after each turn (default true). */
   autoCompress?: boolean;
 }
+
+export type ModelRole = "main" | "aux";
+export interface ResolvedModels {
+  main: { provider: string; model: string };
+  aux: { provider: string; model: string };
+}
+
+const MODEL_NAME = /^\S{1,200}$/;
 
 export interface TurnOutcome {
   turn: Turn;
@@ -71,9 +88,28 @@ export class Platform {
     ensure(isProviderId(id), "INVALID_PROVIDER", `不支持的模型供应商 ${id}`);
     return resolveProviderConfig(id, this.store.getSetting(`provider:${id}`), this.env);
   }
-  provider(id: string): ModelProvider {
-    if (this.opts.providerFactory) return this.opts.providerFactory(id);
-    return createProvider(id, id === "demo" ? undefined : this.providerConfig(id), this.opts.fetcher);
+  /** Which provider and model a campaign uses for its main KP and for auxiliary work. */
+  models(campaign: Campaign): ResolvedModels {
+    const m = campaign.settings.models;
+    const defaultModel = (provider: string) => (provider === "demo" ? "offline-demo" : this.providerConfig(provider).model);
+    const auxProvider = m.auxProvider ?? campaign.provider;
+    return {
+      main: { provider: campaign.provider, model: m.main ?? defaultModel(campaign.provider) },
+      aux: {
+        provider: auxProvider,
+        model: m.auxModel ?? (isProviderId(auxProvider) ? AUX_DEFAULTS[auxProvider] : undefined) ?? defaultModel(auxProvider),
+      },
+    };
+  }
+  provider(id: string, model?: string, role: ModelRole = "main"): ModelProvider {
+    if (this.opts.providerFactory) return this.opts.providerFactory(id, { role, model: model ?? "" });
+    if (id === "demo") return createProvider("demo", undefined);
+    const config = this.providerConfig(id);
+    return createProvider(id, model ? { ...config, model } : config, this.opts.fetcher);
+  }
+  private modelFor(campaign: Campaign, role: ModelRole): ModelProvider {
+    const r = this.models(campaign)[role];
+    return this.provider(r.provider, r.model, role);
   }
   providers() {
     return [
@@ -91,6 +127,14 @@ export class Platform {
     if (b.apiKey) stored.apiKey = str(b.apiKey, "apiKey", 500);
     if (b.deleteApiKey === true) delete stored.apiKey;
     if (b.model !== undefined) stored.model = b.model ? str(b.model, "model", 200) : undefined;
+    if (b.reasoningEffort !== undefined) {
+      ensure(b.reasoningEffort === null || isReasoningEffort(b.reasoningEffort), "INVALID_INPUT", "reasoningEffort 需为 none/minimal/low/medium/high/xhigh");
+      stored.reasoningEffort = b.reasoningEffort ?? undefined;
+    }
+    if (b.maxTokens !== undefined) {
+      ensure(b.maxTokens === null || (Number.isInteger(b.maxTokens) && b.maxTokens >= 256 && b.maxTokens <= 64000), "INVALID_INPUT", "maxTokens 需为 256-64000 的整数");
+      stored.maxTokens = b.maxTokens ?? undefined;
+    }
     if (b.baseUrl !== undefined) {
       if (b.baseUrl) {
         const u = new URL(str(b.baseUrl, "baseUrl", 500));
@@ -132,9 +176,8 @@ export class Platform {
     const provider = str(b.provider, "provider", 30);
     ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / anthropic / openai / gemini");
     ensure(Array.isArray(b.players) && b.players.length >= 1 && b.players.length <= 12, "INVALID_INPUT", "需要 1-12 名玩家");
-    const settings: CampaignSettings = structuredClone(DEFAULT_SETTINGS);
-    if (b.settings?.budgets) Object.assign(settings.budgets, b.settings.budgets);
-    if (b.settings?.director) Object.assign(settings.director, b.settings.director);
+    const settings: CampaignSettings = normalizeSettings(b.settings);
+    if (b.models !== undefined) settings.models = this.parseModels(b.models, settings.models);
     const players = (b.players as unknown[]).map((p) => {
       const o = obj(p);
       return {
@@ -153,6 +196,27 @@ export class Platform {
       return c;
     });
   }
+  private parseModels(body: unknown, current: CampaignSettings["models"]): CampaignSettings["models"] {
+    const b = obj(body);
+    const next = { ...current };
+    for (const key of ["main", "auxModel"] as const)
+      if (b[key] !== undefined) {
+        ensure(b[key] === null || b[key] === "" || (typeof b[key] === "string" && MODEL_NAME.test(b[key])), "INVALID_INPUT", `${key} 需为不含空格的模型名`);
+        next[key] = b[key] || null;
+      }
+    if (b.auxProvider !== undefined) {
+      ensure(b.auxProvider === null || b.auxProvider === "" || b.auxProvider === "demo" || isProviderId(b.auxProvider), "INVALID_PROVIDER", "auxProvider 需为 demo / openrouter / anthropic / openai / gemini");
+      next.auxProvider = b.auxProvider || null;
+    }
+    return next;
+  }
+  setModels(campaignId: string, body: unknown) {
+    const c = this.store.getCampaign(campaignId);
+    const settings = { ...c.settings, models: this.parseModels(body, c.settings.models) };
+    this.store.updateSettings(campaignId, settings);
+    return this.models({ ...c, settings });
+  }
+
   setCharacter(campaignId: string, playerId: string, body: unknown) {
     const c = this.store.getCampaign(campaignId);
     const b = obj(body);
@@ -167,6 +231,8 @@ export class Platform {
     const { state, version } = this.store.getState<WorldState>(campaignId);
     return {
       campaign,
+      models: this.safeModels(campaign),
+      usage: this.store.usageTotals(campaignId),
       scenario: (({ text, ...s }) => ({ ...s, characters: text.length }))(this.store.getScenario(campaign.scenarioId)),
       characters: this.store.characters(campaignId),
       state,
@@ -175,6 +241,14 @@ export class Platform {
       turns: this.store.turns(campaignId, 30),
       events: this.store.events(campaignId, { limit: 300 }),
     };
+  }
+  /** Resolve models for display without failing the whole view on a bad provider config. */
+  private safeModels(campaign: Campaign): ResolvedModels | null {
+    try {
+      return this.models(campaign);
+    } catch {
+      return null;
+    }
   }
   publicView(campaignId: string) {
     const campaign = this.store.getCampaign(campaignId);
@@ -281,7 +355,7 @@ export class Platform {
           ? "请开场：交代背景，描述开场场景，抛出主线钩子；并用 update_scene、set_thread、update_npc 建立初始状态。"
           : JSON.stringify({ turn: turn.n, playerId: input.playerId, playerName: player?.name, kind: input.kind, text: input.text });
       const tools = buildKpTools({ system, index, rng: this.rng });
-      const trace = await runAgent(this.provider(campaign.provider), ctx.system, userInput, tools, scratch);
+      const trace = await runAgent(this.modelFor(campaign, "main"), { system: ctx.system, parts: ctx.parts }, userInput, tools, scratch);
       const reply = scratch.reply!;
 
       this.store.tx(() => {
@@ -355,7 +429,9 @@ export class Platform {
       try {
         // Up to two passes: one level-1 summary, then a possible chapter merge.
         for (let i = 0; i < 2; i++) {
-          const r = await compress(this.store, campaign, this.provider(campaign.provider));
+          // Re-read: models may have been changed since the turn started.
+          const current = this.store.getCampaign(campaign.id);
+          const r = await compress(this.store, current, this.modelFor(current, "aux"));
           if (!r.level1 && !r.level2) break;
         }
       } catch (e) {
@@ -371,7 +447,7 @@ export class Platform {
   /** Compress now regardless of thresholds (manual button). Runs in the campaign queue. */
   compressNow(campaignId: string) {
     const campaign = this.store.getCampaign(campaignId);
-    return this.enqueue(campaignId, () => compress(this.store, campaign, this.provider(campaign.provider), { force: true }));
+    return this.enqueue(campaignId, () => compress(this.store, campaign, this.modelFor(campaign, "aux"), { force: true }));
   }
 
   /** Wait for queued turns and background compression of a campaign (tests, shutdown). */

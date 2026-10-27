@@ -55,7 +55,7 @@ export function openaiProvider(config: ProviderConfig, fetcher: Fetcher = fetch)
             : data.status === "completed"
               ? "end"
               : "other",
-      usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens },
+      usage: { input: data.usage?.input_tokens, output: data.usage?.output_tokens, cached: data.usage?.input_tokens_details?.cached_tokens },
     };
   };
   const base = {

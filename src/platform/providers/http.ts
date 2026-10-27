@@ -26,7 +26,9 @@ export async function postJson(
     const hint =
       response.status === 401 || response.status === 403
         ? "请检查 API key"
-        : response.status === 404
+        : response.status === 402
+          ? "账户余额不足"
+          : response.status === 404
           ? "请检查模型名和接口地址"
           : response.status === 429
             ? "请求过多或额度不足"

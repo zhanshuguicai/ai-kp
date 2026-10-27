@@ -71,7 +71,10 @@ async function loadAll() {
   $("cp-system").replaceChildren(...systems.map((s) => option(s.id, s.name)));
   $("cp-provider").replaceChildren(...prov.providers.map((p) => option(p.id, `${p.id}${p.configured ? "" : "（未配置）"}`)));
   $("pv-id").replaceChildren(...prov.providers.filter((p) => p.id !== "demo").map((p) => option(p.id, p.id)));
-  $("providers").replaceChildren(...prov.providers.map((p) => el("li", "", `${p.id}：${p.model} · ${p.configured ? "已配置" : "未配置"}`)));
+  $("providers").replaceChildren(...prov.providers.map((p) => el("li", "", `${p.id}：${p.model}${p.reasoningEffort ? ` · 推理 ${p.reasoningEffort}` : ""} · ${p.configured ? "已配置" : "未配置"}`)));
+  const auxOptions = () => [option("", "同主力供应商"), ...prov.providers.map((p) => option(p.id, p.id))];
+  $("cp-aux-provider").replaceChildren(...auxOptions());
+  $("md-aux-provider").replaceChildren(...auxOptions());
   $("cp-scenario").replaceChildren(...sc.scenarios.map((s) => option(s.id, s.title)));
   $("scenarios").replaceChildren(...sc.scenarios.map((s) => el("li", "", `${s.title} · ${s.characters} 字 · ${s.chunks} 段${s.hasBrief ? " · 有概要" : ""}`)));
   renderCampaigns(cp.campaigns);
@@ -120,11 +123,30 @@ function renderCampaign() {
   $("directives").replaceChildren(...(ds.length ? ds.map((d) => el("div", "directive", `【${d.kind}】${d.reason}`)) : [el("span", "muted", "节奏正常")]));
   if (last?.data?.context) $("directives").append(el("div", "muted", `上下文约 ${last.data.context.total} tokens`));
 
+  renderModels();
   renderState(state);
   $("summaries").replaceChildren(
     ...(summaries.length ? summaries.map((s) => el("p", "", `${s.level === 2 ? "【章节】" : "【片段】"}${$("show-kp").checked ? s.kpText : s.publicText}`)) : [el("span", "muted", "尚无（记录变长后会自动压缩）")]),
   );
   renderSheets(characters, campaign.systemId);
+}
+
+function renderModels() {
+  const m = view.models;
+  $("models-info").replaceChildren(
+    ...(m
+      ? [el("div", "", `主力：${m.main.provider} · ${m.main.model}`), el("div", "", `辅助：${m.aux.provider} · ${m.aux.model}`)]
+      : [el("div", "", "模型配置无效，请检查供应商设置")]),
+  );
+  const s = view.campaign.settings.models;
+  $("md-main").value = s.main || "";
+  $("md-aux-provider").value = s.auxProvider || "";
+  $("md-aux").value = s.auxModel || "";
+  const u = view.usage;
+  const k = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : String(n));
+  $("usage").textContent = u.turns
+    ? `${u.turns} 轮 · 输入 ${k(u.input)}（缓存 ${u.input ? Math.round((u.cached / u.input) * 100) : 0}%）· 输出 ${k(u.output)}${u.cost !== null ? ` · ${u.cost.toFixed(3)}` : ""}`
+    : "尚无用量";
 }
 
 function renderEvent(e) {
@@ -241,6 +263,7 @@ $("campaign-form").addEventListener("submit", (e) => {
     const r = await api("POST", "/campaigns", {
       name: $("cp-name").value, scenarioId: $("cp-scenario").value, systemId: $("cp-system").value,
       provider: $("cp-provider").value, players,
+      models: { main: $("cp-main").value.trim() || null, auxProvider: $("cp-aux-provider").value || null, auxModel: $("cp-aux").value.trim() || null },
     });
     campaignId = r.campaign.id;
     remember();
@@ -256,10 +279,25 @@ $("provider-form").addEventListener("submit", (e) => {
     if ($("pv-key").value.trim()) body.apiKey = $("pv-key").value.trim();
     if ($("pv-model").value.trim()) body.model = $("pv-model").value.trim();
     if ($("pv-url").value.trim()) body.baseUrl = $("pv-url").value.trim();
+    if ($("pv-effort").value) body.reasoningEffort = $("pv-effort").value;
     await api("POST", `/providers/${$("pv-id").value}`, body);
     $("pv-key").value = "";
     notice("模型设置已保存", true);
     await loadAll();
+  });
+});
+
+$("models-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!campaignId) return;
+  run(async () => {
+    await api("PUT", `/campaigns/${campaignId}/models`, {
+      main: $("md-main").value.trim() || null,
+      auxProvider: $("md-aux-provider").value || null,
+      auxModel: $("md-aux").value.trim() || null,
+    });
+    notice("本团模型已更新，下一轮生效", true);
+    await loadCampaign();
   });
 });
 

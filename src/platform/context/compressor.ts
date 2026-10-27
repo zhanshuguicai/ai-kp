@@ -15,6 +15,9 @@ const SYSTEM = `你是跑团记录员。把给定的游戏记录压缩成摘要�
 - kp：KP 视角，可以包含全部信息，特别保留：未兑现的伏笔、NPC 的隐藏动机、玩家做出的承诺与关键选择、角色状态变化。
 - 两者都按时间顺序，保留人名、地名、物品与线索原文中的专有名词。只输出 JSON。`;
 
+// Reasoning models spend part of the output budget thinking; leave room so summaries are not cut off.
+const SUMMARY_MAX_TOKENS = 4000;
+
 export function parseSummary(raw: string): { public: string; kp: string } {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -75,7 +78,7 @@ export async function compress(
     ]
       .filter(Boolean)
       .join("\n\n");
-    const s = parseSummary(await provider.complete({ system: SYSTEM, prompt, maxTokens: 1500 }));
+    const s = parseSummary(await provider.complete({ system: SYSTEM, prompt, maxTokens: SUMMARY_MAX_TOKENS }));
     result.level1 = store.addSummary({
       campaignId: campaign.id,
       level: 1,
@@ -96,7 +99,7 @@ export async function compress(
     const prompt = `把以下按时间排列的摘要合并为一段章节摘要，删去已不重要的细节，保留仍影响后续剧情的信息。\n\n${fold
       .map((s, i) => `#${i + 1}\n公开版：${s.publicText}\nKP 版：${s.kpText}`)
       .join("\n\n")}`;
-    const s = parseSummary(await provider.complete({ system: SYSTEM, prompt, maxTokens: 2000 }));
+    const s = parseSummary(await provider.complete({ system: SYSTEM, prompt, maxTokens: SUMMARY_MAX_TOKENS }));
     result.level2 = store.addSummary(
       {
         campaignId: campaign.id,

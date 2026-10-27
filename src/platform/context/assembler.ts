@@ -25,6 +25,8 @@ export interface ContextInput {
 
 export interface BuiltContext {
   system: string;
+  /** `stable` = instructions, rules, scenario brief (cacheable across turns); `dynamic` = the rest. */
+  parts: { stable: string; dynamic: string };
   usage: Record<string, number>;
 }
 
@@ -91,13 +93,13 @@ export function assembleContext(ci: ContextInput): BuiltContext {
     ci.budgets.scenario - estimateTokens(brief),
     sceneHits,
   );
-  const scenarioText = [
+  const scenarioHeader = [
     `剧本《${ci.scenario.title}》，原文共 ${ci.index.size} 段，可用 query_scenario 查阅其余部分。`,
     brief ? `KP 概要（核心真相与主持要点）：\n${brief}` : "（没有 KP 概要，请依赖原文）",
-    chunks.length ? `相关原文：\n${chunks.map((c) => `〔段${c.idx}｜${c.heading || "无标题"}〕\n${c.text}`).join("\n\n")}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ].join("\n\n");
+  const chunkText = chunks.length
+    ? chunks.map((c) => `〔段${c.idx}｜${c.heading || "无标题"}〕\n${c.text}`).join("\n\n")
+    : "（本轮没有检索到相关段落）";
 
   // L2 state + characters
   const sheets = ci.players
@@ -113,14 +115,19 @@ export function assembleContext(ci: ContextInput): BuiltContext {
   // L4 recent events
   const recent = tail(formatEvents(ci.recent, names), ci.budgets.recent);
 
-  const system =
+  // Stable first so providers can cache it across turns; everything that changes per turn after it.
+  const stable =
     PERSONA +
     section("rules", "规则", rulesPrompt(ci.system)) +
-    section("scenario", "剧本", scenarioText) +
+    section("brief", "剧本", scenarioHeader);
+  const dynamic =
+    section("scenario", "本轮相关原文", chunkText) +
     section("state", "当前状态", stateText) +
     section("summaries", "前情摘要", summaries.text || "（尚无）") +
     section("recent", "最近经过", (recent.dropped ? `（更早的 ${recent.dropped} 条记录见摘要）\n` : "") + (recent.text || "（刚开始）")) +
     section("directives", "节奏建议（仅供 KP）", renderDirectives(ci.directives));
+  const system = stable + dynamic;
+  usage.stable = estimateTokens(stable);
   usage.total = estimateTokens(system);
-  return { system, usage };
+  return { system, parts: { stable, dynamic }, usage };
 }

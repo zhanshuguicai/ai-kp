@@ -42,7 +42,10 @@
           <input id="cp-name" placeholder="团名" required>
           <label>剧本<select id="cp-scenario" required></select></label>
           <label>规则<select id="cp-system"></select></label>
-          <label>模型<select id="cp-provider"></select></label>
+          <label>模型供应商<select id="cp-provider"></select></label>
+          <input id="cp-main" placeholder="主力模型（留空用供应商默认）">
+          <label>辅助模型供应商（做摘要）<select id="cp-aux-provider"></select></label>
+          <input id="cp-aux" placeholder="辅助模型（留空：OpenRouter/Anthropic 用 Haiku 5.5）">
           <textarea id="cp-players" rows="3" placeholder="每行一位玩家：id,名字&#10;p1,林雾&#10;p2,周岚" required></textarea>
           <button type="submit">开团</button>
         </form>
@@ -55,6 +58,13 @@
           <input id="pv-key" type="password" placeholder="API key（留空保持不变）" autocomplete="off">
           <input id="pv-model" placeholder="模型名（留空用默认）">
           <input id="pv-url" placeholder="接口地址（留空用默认）">
+          <label>推理强度（OpenRouter）<select id="pv-effort">
+            <option value="">保持不变</option>
+            <option value="none">none（关闭）</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select></label>
           <button type="submit">保存</button>
         </form>
         <ul id="providers" class="list small"></ul>
@@ -88,6 +98,17 @@
     </section>
 
     <aside class="col right">
+      <section>
+        <h3>模型与用量</h3>
+        <div id="models-info" class="muted">—</div>
+        <form id="models-form" class="stack">
+          <input id="md-main" placeholder="主力模型（留空用默认）">
+          <select id="md-aux-provider"></select>
+          <input id="md-aux" placeholder="辅助模型（留空用默认）">
+          <button type="submit">更新本团模型</button>
+        </form>
+        <div id="usage" class="muted"></div>
+      </section>
       <section>
         <h3>节奏建议</h3>
         <div id="directives" class="muted">—</div>
