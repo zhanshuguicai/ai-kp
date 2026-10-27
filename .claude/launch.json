@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "platform",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file=.claude/preview.env", "--disable-warning=ExperimentalWarning", "dist/src/platform/server.js"],
+      "port": 3100
+    }
+  ]
+}

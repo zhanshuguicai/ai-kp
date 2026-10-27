@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI KP 平台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>AI KP 平台</h1>
+    <form id="token-form" class="token">
+      <input id="token" type="password" placeholder="管理令牌（data/admin-token.txt）" autocomplete="off">
+      <button type="submit">连接</button>
+    </form>
+    <span id="status" class="badge">未连接</span>
+  </header>
+  <p id="notice" class="notice" hidden></p>
+
+  <main class="layout">
+    <aside class="col left">
+      <details open>
+        <summary>团</summary>
+        <ul id="campaigns" class="list"></ul>
+      </details>
+
+      <details>
+        <summary>导入剧本</summary>
+        <form id="scenario-form" class="stack">
+          <input id="sc-title" placeholder="剧本标题" required>
+          <label class="file">选择 TXT / Markdown 文件<input id="sc-file" type="file" accept=".txt,.md,text/plain,text/markdown"></label>
+          <textarea id="sc-text" rows="6" placeholder="或直接粘贴剧本原文" required></textarea>
+          <textarea id="sc-brief" rows="4" placeholder="KP 概要（可选）：核心真相、主线、关键 NPC 秘密。每轮都会给 KP 看"></textarea>
+          <button type="submit">导入</button>
+        </form>
+        <ul id="scenarios" class="list small"></ul>
+      </details>
+
+      <details>
+        <summary>开新团</summary>
+        <form id="campaign-form" class="stack">
+          <input id="cp-name" placeholder="团名" required>
+          <label>剧本<select id="cp-scenario" required></select></label>
+          <label>规则<select id="cp-system"></select></label>
+          <label>模型<select id="cp-provider"></select></label>
+          <textarea id="cp-players" rows="3" placeholder="每行一位玩家：id,名字&#10;p1,林雾&#10;p2,周岚" required></textarea>
+          <button type="submit">开团</button>
+        </form>
+      </details>
+
+      <details>
+        <summary>模型设置</summary>
+        <form id="provider-form" class="stack">
+          <select id="pv-id"></select>
+          <input id="pv-key" type="password" placeholder="API key（留空保持不变）" autocomplete="off">
+          <input id="pv-model" placeholder="模型名（留空用默认）">
+          <input id="pv-url" placeholder="接口地址（留空用默认）">
+          <button type="submit">保存</button>
+        </form>
+        <ul id="providers" class="list small"></ul>
+      </details>
+    </aside>
+
+    <section class="col center">
+      <div class="room-head">
+        <div>
+          <h2 id="room-name">未选择团</h2>
+          <p id="room-meta" class="muted"></p>
+        </div>
+        <div class="row">
+          <label class="check"><input id="show-kp" type="checkbox" checked> 显示 KP 信息</label>
+          <button id="start" type="button">开场</button>
+          <button id="compress" type="button" title="立即压缩较早的记录">压缩</button>
+        </div>
+      </div>
+      <ol id="log" class="log"></ol>
+      <form id="message-form" class="composer">
+        <select id="msg-player"></select>
+        <select id="msg-kind">
+          <option value="auto">自动判断</option>
+          <option value="action">行动</option>
+          <option value="dialogue">对话</option>
+          <option value="ooc">题外话</option>
+        </select>
+        <textarea id="msg-text" rows="2" placeholder="玩家发言或行动…（Ctrl+Enter 发送）" required></textarea>
+        <button id="send" type="submit">发送</button>
+      </form>
+    </section>
+
+    <aside class="col right">
+      <section>
+        <h3>节奏建议</h3>
+        <div id="directives" class="muted">—</div>
+      </section>
+      <section>
+        <h3>状态</h3>
+        <div id="state"></div>
+      </section>
+      <section>
+        <h3>前情摘要</h3>
+        <div id="summaries" class="muted">尚无</div>
+      </section>
+      <section>
+        <h3>角色卡</h3>
+        <div id="sheets"></div>
+      </section>
+    </aside>
+  </main>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
