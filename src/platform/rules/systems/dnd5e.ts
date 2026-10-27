@@ -14,6 +14,7 @@ import {
   str,
 } from "../util.js";
 import { ADVANTAGE, rollD20, signed } from "./d20.js";
+import { contestByTotal } from "../opposed.js";
 
 const ABILITIES = ["str", "dex", "con", "int", "wis", "cha"] as const;
 type Ability = (typeof ABILITIES)[number];
@@ -207,9 +208,11 @@ export const dnd5e: RuleSystem<DndSheet> = {
       notes: parts.length ? [`调整：${parts.join(" ")}`, ...notes] : notes,
     };
   },
+  opposed: contestByTotal(() => dnd5e, ["dc", "type"], { dc: 1, type: "check" }, { tieNote: "平手：维持现状，主动方没能达成目的" }),
   promptGuide: () =>
     [
       "规则：龙与地下城第五版（D&D 5e）。",
+      "- 双方对抗（擒抱、隐匿对察觉、欺瞒对洞悉）用 opposed_check，比较总值，平手维持现状。",
       "- 检定用 check：先定 DC（简单10/中等15/困难20/极难25），再调用；type 区分检定/豁免/攻击（攻击 dc 填 AC）。",
       "- 有利情境给 advantage，不利给 disadvantage；二者同时存在则 none。",
       "- 被动察觉等不需要掷骰的判断直接按 10+调整值处理。伤害骰用 roll（如 1d8+3，暴击时骰子数翻倍）。",

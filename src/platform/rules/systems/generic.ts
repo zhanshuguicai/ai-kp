@@ -13,6 +13,7 @@ import {
   str,
 } from "../util.js";
 import { ADVANTAGE, rollD20, signed } from "./d20.js";
+import { contestByTotal } from "../opposed.js";
 
 export interface GenericSheet {
   modifiers: Record<string, number>;
@@ -69,9 +70,11 @@ export const genericD20: RuleSystem<GenericSheet> = {
       notes: source === "base" ? ["角色卡无此项，按 +0"] : source === "declared" ? ["调整值由 KP 声明"] : [],
     };
   },
+  opposed: contestByTotal(() => genericD20, ["dc"], { dc: 1 }, { tieNote: "平手：维持现状" }),
   promptGuide: () =>
     [
       "规则：通用 d20（或剧本自带的轻规则）。",
+      "- 双方对抗用 opposed_check，比较总值。",
       "- 检定用 check：d20+调整对抗 DC（简单10/普通15/困难20），天然20大成功、天然1大失败。",
       "- 如果剧本原文写有自己的规则，以原文为准，用 roll 掷任意骰并自行判定。",
     ].join("\n"),

@@ -125,7 +125,7 @@ $("message-form").addEventListener("submit", (e) => {
   $("send").disabled = true;
   $("send").textContent = "KP 思考中…";
   run(async () => {
-    const r = await api("POST", "/messages", { messageId: newId(), kind: $("msg-kind").value, text });
+    const r = await api("POST", "/messages", { messageId: newId(), text });
     if (r.turn.status === "failed") notice(r.turn.error || "这一轮失败了，请再发一次");
     else $("msg-text").value = "";
     await load();

@@ -308,11 +308,15 @@ test("every tool schema is OpenAI-strict compatible and every system has a promp
   for (const system of ALL) {
     const defs = ruleToolDefs(system);
     assert.deepEqual(defs.slice(0, 2).map((d) => d.name), ["check", "roll"]);
+    const strict = (p: any, where: string) => {
+      assert.equal(p.additionalProperties, false, where);
+      assert.deepEqual([...p.required].sort(), Object.keys(p.properties).sort(), where);
+      for (const [k, v] of Object.entries<any>(p.properties)) if (v.type === "object") strict(v, `${where}.${k}`);
+    };
     for (const def of defs) {
       const p = def.parameters as any;
       assert.equal(p.type, "object");
-      assert.equal(p.additionalProperties, false, `${system.id}.${def.name}`);
-      assert.deepEqual([...p.required].sort(), Object.keys(p.properties).sort(), `${system.id}.${def.name}`);
+      strict(p, `${system.id}.${def.name}`);
     }
     assert(rulesPrompt(system).length > 50);
     assert.doesNotThrow(() => system.parseSheet(system.exampleSheet()), system.id);

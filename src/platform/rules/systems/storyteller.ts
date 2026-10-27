@@ -12,6 +12,7 @@ import {
   sch,
   str,
 } from "../util.js";
+import { contestByTotal } from "../opposed.js";
 
 export interface StorytellerSheet {
   traits: Record<string, number>;
@@ -117,9 +118,14 @@ export const storytellerV20: RuleSystem<StorytellerSheet> = {
       notes,
     };
   },
+  opposed: contestByTotal(() => storytellerV20, [], {}, {
+    tieNote: "成功数相同：平手，局面不变",
+    show: (r) => `${r.stat} ${r.dice[0] ? `${r.dice[0].label}[${r.dice[0].values.join(",")}]` : "骰池0"} → ${r.total} 成功`,
+  }),
   promptGuide: () =>
     [
       "规则：黑暗世界 V20（讲述者系统）。",
+      "- 对抗检定用 opposed_check：双方各掷骰池（难度各自填写，常为对方的相关属性或 6），净成功多者胜。",
       "- check 的 stat 写成 属性+能力（如 敏捷+潜行）；难度默认 6，按情境调整 4-9。",
       "- 每个 1 抵消一个成功；没有成功且出现 1 为大失败。成功数越多效果越好（1 勉强 … 5+ 非凡）。",
       "- 玩家可声明花意志力（willpower=true）获得 1 自动成功；有专长时 specialty=true。",

@@ -21,7 +21,7 @@ import {
 } from "./providers/index.js";
 import type { Fetcher } from "./providers/http.js";
 import { initialState, publicState, type WorldState } from "./kp/state.js";
-import { buildKpTools, type TurnScratch } from "./kp/tools.js";
+import { buildKpTools, checkRecords, PUSH_WINDOW, type CheckRecord, type TurnScratch } from "./kp/tools.js";
 import { runAgent } from "./kp/agent.js";
 import { direct, type Directive } from "./director/director.js";
 import { assembleContext } from "./context/assembler.js";
@@ -30,6 +30,7 @@ import { compileScenario, demoCompile, renderGuide, type CompiledScenario, type 
 
 export const MESSAGE_KINDS = ["dialogue", "action", "ooc", "auto"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
+const OOC_MARK = /^\s*(?:ooc\s*[:：]|[（(])/i;
 
 export interface PlatformOptions {
   env?: NodeJS.ProcessEnv;
@@ -469,6 +470,8 @@ export class Platform {
       text: str(b.text, "text", 6000),
     };
     ensure(MESSAGE_KINDS.includes(input.kind), "INVALID_INPUT", "kind 需为 dialogue / action / ooc / auto");
+    // Players just write; out-of-character talk is marked the way tables usually do it.
+    if (input.kind === "auto" && OOC_MARK.test(input.text)) input.kind = "ooc";
     return this.enqueue(campaignId, () => this.process(campaignId, input));
   }
   start(campaignId: string, body: unknown): Promise<TurnOutcome> {
@@ -526,6 +529,7 @@ export class Platform {
       sheets: Object.fromEntries(characters.filter((c) => c.sheet).map((c) => [c.playerId, structuredClone(c.sheet)])),
       players: characters.map((c) => ({ id: c.playerId, name: c.name })),
       events: [],
+      priorChecks: this.priorChecks(campaignId, turn.n, characters.map((c) => c.playerId)),
     };
     let directives: Directive[] = [];
     try {
@@ -603,6 +607,15 @@ export class Platform {
     return this.turnResult(this.store.findTurn(campaignId, input.messageId)!, false);
   }
 
+  /** Player checks from recent turns, for the push rules (see kp/tools guardRerolls). */
+  private priorChecks(campaignId: string, n: number, playerIds: string[]): CheckRecord[] {
+    const players = new Set(playerIds);
+    return this.store
+      .events(campaignId, { limit: 400 })
+      .filter((e) => e.type === "roll" && typeof e.data?.turn === "number" && e.data.turn >= n - PUSH_WINDOW && e.data.turn < n)
+      .flatMap((e) => checkRecords(e.data.tool, { ...e.data.result, pushed: e.data.pushed === true }, e.data.turn, (id) => players.has(id)));
+  }
+
   directives(campaign: Campaign, turn: Turn, state: WorldState, compiled: CompiledScenario | null = null): Directive[] {
     // Compiled clues not found yet; those located in the current scene first.
     const found = new Set(state.clues.map((c) => c.ref).filter(Boolean));
@@ -616,8 +629,10 @@ export class Platform {
     for (const t of turns) if (t.playerId) lastSpoke[t.playerId] = t.n;
     const recentOutcomes = this.store
       .events(campaign.id, { limit: 40 })
-      .filter((e) => e.type === "roll" && e.data?.result?.outcome)
-      .map((e) => e.data.result.outcome as Outcome);
+      .filter((e) => e.type === "roll" && e.data?.result)
+      // For a contest, count how it went for the players' side.
+      .map((e) => (e.data.result.kind === "opposed" ? e.data.result.sides.find((s: any) => s.actor)?.outcome : e.data.result.outcome) as Outcome | undefined)
+      .filter((o): o is Outcome => !!o);
     return direct({
       turn: turn.n,
       state,

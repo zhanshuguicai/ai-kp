@@ -12,6 +12,7 @@ import {
   str,
 } from "../util.js";
 import { signed } from "./d20.js";
+import { contestByTotal } from "../opposed.js";
 
 export interface FateSheet {
   skills: Record<string, number>;
@@ -90,9 +91,15 @@ export const fate: RuleSystem<FateSheet> = {
               : [],
     };
   },
+  opposed: contestByTotal(() => fate, ["opposition"], { opposition: 0 }, {
+    tieNote: "平手：以较小代价达成，或获得一次增益",
+    show: (r) => `${r.stat} ${r.dice.map((d) => d.values.map((v) => (v > 0 ? "+" : v < 0 ? "-" : "0")).join("")).join("")} → ${ladder(r.total)}`,
+    extraNotes: (d) => (d >= 3 ? [`胜方差距 ${d} 转移：风格成功，额外获得一次增益`] : [`胜方差距 ${d} 转移`]),
+  }),
   promptGuide: () =>
     [
       "规则：FATE Core。",
+      "- 主动对抗（对手掷骰抵抗）用 opposed_check，比较双方结果；被动阻力仍用 check。",
       "- check 时先定阻力 opposition（被动阻力按阶梯：一般+1 尚可+2 好+3 很好+4），玩家援引面向时 invokes 记次数（每次 +2，需花命运点，由你在叙述中确认）。",
       "- 平手=有代价的成功；失败也可让玩家选择付出重大代价后成功。四种行动：克服/创造优势/攻击/防御。",
     ].join("\n"),

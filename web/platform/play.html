@@ -18,13 +18,7 @@
     <section class="col center">
       <ol id="log" class="log"></ol>
       <form id="message-form" class="composer">
-        <select id="msg-kind">
-          <option value="auto">自动判断</option>
-          <option value="action">行动</option>
-          <option value="dialogue">对话</option>
-          <option value="ooc">题外话</option>
-        </select>
-        <textarea id="msg-text" rows="2" placeholder="说点什么，或描述你的行动…（Ctrl+Enter 发送）" required></textarea>
+        <textarea id="msg-text" rows="2" placeholder="描述你的行动或要说的话，不用报技能和骰子；场外话用括号或 ooc: 开头（Ctrl+Enter 发送）" required></textarea>
         <button id="send" type="submit">发送</button>
       </form>
     </section>

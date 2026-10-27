@@ -53,6 +53,29 @@ export interface CheckResult {
   notes?: string[];
 }
 
+export interface OpposedResult {
+  system: string;
+  kind: "opposed";
+  reason: string;
+  /** Side a (the one acting) and side b (the one resisting). Each side's outcome is win/lose/tie. */
+  sides: [CheckResult & { label: string }, CheckResult & { label: string }];
+  winner: "a" | "b" | "tie";
+  summary: string;
+  notes?: string[];
+}
+
+export interface OpposedSpec<S> {
+  /** Check parameters that make no sense in a contest (fixed targets, pushes); removed from each side. */
+  omit: string[];
+  resolve(
+    a: Record<string, unknown>,
+    b: Record<string, unknown>,
+    sheetA: S | undefined,
+    sheetB: S | undefined,
+    rng: Rng,
+  ): OpposedResult;
+}
+
 export interface RollTerm {
   text: string;
   sign: 1 | -1;
@@ -105,6 +128,8 @@ export interface RuleSystem<S = unknown> {
     rng: Rng,
   ): CheckResult;
   extraTools?: RuleTool<S>[];
+  /** Contests between two sides (stealth vs listen …). Absent when the system has no opposed rolls. */
+  opposed?: OpposedSpec<S>;
   /** Injected into the KP's fixed context (L0). */
   promptGuide(): string;
 }

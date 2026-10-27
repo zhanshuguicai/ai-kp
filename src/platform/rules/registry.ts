@@ -1,6 +1,6 @@
 import { formatRoll, rollDice } from "./dice.js";
 import type { Rng, RuleSystem, RuleTool, ToolDef } from "./types.js";
-import { RuleError, fail, norm, objectSchema, sch, str } from "./util.js";
+import { RuleError, fail, norm, objectSchema, record, sch, str } from "./util.js";
 import { coc7 } from "./systems/coc7.js";
 import { dnd5e } from "./systems/dnd5e.js";
 import { pf2e } from "./systems/pf2e.js";
@@ -69,8 +69,35 @@ function checkTool(system: RuleSystem<any>): RuleTool<any> {
   };
 }
 
+function opposedTool(system: RuleSystem<any>): RuleTool<any> | undefined {
+  const spec = system.opposed;
+  if (!spec) return undefined;
+  const props: Record<string, unknown> = { ...(system.checkParameters as { properties: Record<string, unknown> }).properties };
+  for (const k of [...spec.omit, "reason"]) delete props[k];
+  props.label = sch.nstr("这一方的称呼（NPC 名等）；玩家可为 null");
+  const side = (description: string) => ({ ...objectSchema(props), description });
+  return {
+    def: {
+      name: "opposed_check",
+      description: `${system.name} 对抗检定：双方各自掷骰后比较，返回胜方。用于角色与 NPC、或角色之间的直接较量（如潜行对聆听）。`,
+      parameters: objectSchema({
+        reason: sch.str("可公开的对抗原因"),
+        a: side("主动方"),
+        b: side("对抗方"),
+      }),
+    },
+    execute(args, ctx) {
+      const reason = str(args.reason, "reason", 500);
+      const a: Record<string, unknown> = { ...record(args.a, "a"), reason };
+      const b: Record<string, unknown> = { ...record(args.b, "b"), reason };
+      return spec.resolve(a, b, ctx.sheetFor(a.actor as string | null), ctx.sheetFor(b.actor as string | null), ctx.rng);
+    },
+  };
+}
+
 export function ruleTools(system: RuleSystem<any>): RuleTool<any>[] {
-  return [checkTool(system), rollTool, ...(system.extraTools ?? [])];
+  const opposed = opposedTool(system);
+  return [checkTool(system), rollTool, ...(opposed ? [opposed] : []), ...(system.extraTools ?? [])];
 }
 
 export function ruleToolDefs(system: RuleSystem<any>): ToolDef[] {

@@ -2,9 +2,9 @@
 // nothing is persisted until the turn commits. Invalid arguments throw ToolInputError, which the
 // agent loop returns to the model so it can fix the call.
 import { PlatformError } from "../errors.js";
-import type { CheckResult, Rng, RuleSystem, ToolDef } from "../rules/types.js";
+import type { CheckResult, OpposedResult, Rng, RuleSystem, ToolDef } from "../rules/types.js";
 import { executeRuleTool, ruleToolDefs } from "../rules/registry.js";
-import { RuleError, lookup, objectSchema, sch } from "../rules/util.js";
+import { RuleError, lookup, norm, objectSchema, sch } from "../rules/util.js";
 import type { NewEvent, Turn } from "../storage/store.js";
 import type { ScenarioIndex } from "../scenario/retriever.js";
 import { clipToTokens, estimateTokens } from "../context/tokens.js";
@@ -34,6 +34,38 @@ export interface TurnScratch {
   players: Player[];
   events: NewEvent[];
   reply?: { text: string; whispers: { playerId: string; text: string }[] };
+  /** Player checks from recent turns (for validating pushed rolls). */
+  priorChecks?: CheckRecord[];
+  /** Player checks made so far in this turn. */
+  checks?: CheckRecord[];
+}
+
+/** One player's check, as remembered for the re-roll rules. */
+export interface CheckRecord {
+  actor: string;
+  stat: string;
+  failed: boolean;
+  pushed: boolean;
+  turn: number;
+}
+
+/** Turns back a failed check can still be pushed (other players' turns may come in between). */
+export const PUSH_WINDOW = 6;
+const CHECK_TOOLS = new Set(["check", "opposed_check"]);
+
+/** Player checks contained in a rule tool result. */
+export function checkRecords(tool: string, result: any, turn: number, isPlayer: (id: string) => boolean): CheckRecord[] {
+  if (!CHECK_TOOLS.has(tool) || !result) return [];
+  const sides: CheckResult[] = result.kind === "opposed" ? result.sides : [result];
+  return sides
+    .filter((r) => typeof r.actor === "string" && isPlayer(r.actor))
+    .map((r) => ({
+      actor: r.actor!,
+      stat: norm(r.stat),
+      failed: r.outcome === "failure" || r.outcome === "critical_failure",
+      pushed: tool === "check" && result.pushed === true,
+      turn,
+    }));
 }
 
 export interface KpTool {
@@ -87,35 +119,79 @@ function ruleTool(system: RuleSystem<any>, def: ToolDef, rng: Rng): KpTool {
     },
     run(args, scratch) {
       const { secret, ...rest } = args;
+      const isPlayer = (id: unknown) => typeof id === "string" && scratch.players.some((p) => p.id === id);
+      const nameOf = (id: unknown) => scratch.players.find((p) => p.id === id)?.name;
+      // Opposed sides that are players are shown by name.
+      if (def.name === "opposed_check")
+        for (const k of ["a", "b"]) {
+          const side = rest[k] as Record<string, unknown> | null;
+          if (side && typeof side === "object" && isPlayer(side.actor) && !side.label) rest[k] = { ...side, label: nameOf(side.actor) };
+        }
       const out = executeRuleTool(system, def.name, rest, { sheets: scratch.sheets, rng });
       if (!out.ok) throw new ToolInputError(out.error.code, out.error.message);
-      const result = out.result as CheckResult & { summary: string };
-      const actor = typeof rest.actor === "string" ? rest.actor : null;
-      const who = actor ? (scratch.players.find((p) => p.id === actor)?.name ?? actor) : null;
+      const pushed = def.name === "check" && rest.pushed === true;
+      const records = checkRecords(def.name, { ...(out.result as object), pushed }, scratch.turn.n, isPlayer);
+      // Validate before anything is recorded, so a rejected roll leaves no trace and the model never sees it.
+      guardRerolls(records, pushed, rest.actor, scratch);
+      scratch.checks = [...(scratch.checks ?? []), ...records];
+
+      const result = out.result as { summary: string };
+      const opposed = (out.result as { kind?: string }).kind === "opposed" ? (out.result as OpposedResult) : null;
+      const actor = opposed ? (opposed.sides.find((x) => isPlayer(x.actor))?.actor ?? null) : typeof rest.actor === "string" ? rest.actor : null;
+      const who = opposed ? null : actor ? (nameOf(actor) ?? actor) : null;
+      const visibility = secret === true ? "kp" : "public";
       event(scratch, {
         type: "roll",
         actor,
-        visibility: secret === true ? "kp" : "public",
+        visibility,
         text: `${who ? `${who}：` : ""}${result.summary}`,
-        data: { tool: def.name, result },
+        data: { tool: def.name, result, turn: scratch.turn.n, pushed },
       });
+      // Players see that a hidden roll happened, not what it was for or how it went.
+      if (secret === true)
+        event(scratch, { type: "roll", actor, visibility: "public", text: `KP 进行了一次暗骰${who ? `（${who}）` : ""}`, data: { secret: true } });
       const applied: string[] = [];
-      for (const e of result.effects ?? []) {
+      const effects = opposed ? [] : ((out.result as CheckResult).effects ?? []);
+      for (const e of effects) {
         if (!Object.hasOwn(scratch.sheets, e.actor)) continue;
         if (applyEffect(scratch.sheets[e.actor], e.field, e.delta)) {
           applied.push(`${e.field}${e.delta >= 0 ? "+" : ""}${e.delta}`);
           event(scratch, {
             type: "state",
             actor: e.actor,
-            visibility: secret === true ? "kp" : "public",
+            visibility,
             text: `${who ?? e.actor} ${e.field} ${e.delta >= 0 ? "+" : ""}${e.delta}`,
             data: { effect: e },
           });
         }
       }
-      return { ...result, appliedEffects: applied, visibility: secret === true ? "kp" : "public" };
+      return { ...result, appliedEffects: applied, visibility };
     },
   };
+}
+
+/**
+ * The model decides checks, so it must not be able to fish for a better result:
+ * one roll per character and skill per turn, and a push only when that player chose it.
+ */
+function guardRerolls(records: CheckRecord[], pushed: boolean, actor: unknown, scratch: TurnScratch) {
+  for (const r of records) {
+    const name = scratch.players.find((p) => p.id === r.actor)?.name ?? r.actor;
+    if (scratch.checks?.some((c) => c.actor === r.actor && c.stat === r.stat))
+      bad(
+        `本轮已经为${name}检定过这项技能，结果不能重掷。一个行动只检定一次；需要再试时，在回复里说明后果并等玩家下一次发言自己选择（如孤注一掷）。`,
+        "ALREADY_ROLLED",
+      );
+  }
+  if (!pushed) return;
+  if (typeof actor !== "string" || !scratch.players.some((p) => p.id === actor)) bad("只有玩家角色可以孤注一掷", "PUSH_NOT_ALLOWED");
+  if (scratch.turn.playerId !== actor)
+    bad("孤注一掷必须由该玩家自己在本次发言中选择；请在回复里询问，等该玩家回答", "PUSH_NOT_ALLOWED");
+  const r = records[0];
+  const prior = (scratch.priorChecks ?? []).filter((c) => c.actor === r.actor && c.stat === r.stat && c.turn >= scratch.turn.n - PUSH_WINDOW);
+  const last = prior[prior.length - 1];
+  if (last?.pushed) bad("这项检定已经孤注一掷过，不能再次尝试", "PUSH_NOT_ALLOWED");
+  if (!last?.failed) bad("最近没有这项技能的失败检定，无法孤注一掷", "PUSH_NOT_ALLOWED");
 }
 
 export function buildKpTools(opts: {

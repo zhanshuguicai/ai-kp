@@ -1,6 +1,7 @@
 // Call of Cthulhu 7th edition: d100 roll-under with regular / hard / extreme success levels.
 import { maxOf, rollDice } from "../dice.js";
-import type { CheckResult, Outcome, Rng, RuleSystem } from "../types.js";
+import type { CheckResult, OpposedResult, Outcome, Rng, RuleSystem } from "../types.js";
+import { asSide, contestSummary, sideName } from "../opposed.js";
 import {
   baseCheckProps,
   fail,
@@ -194,6 +195,54 @@ function check(
   };
 }
 
+/** CoC7 opposed roll: higher success level wins; on a tie the higher skill wins; equal skills tie. */
+function opposed(a: Record<string, unknown>, b: Record<string, unknown>, sa: CocSheet | undefined, sb: CocSheet | undefined, rng: Rng): OpposedResult {
+  const reason = str(a.reason, "reason", 500);
+  const side = (args: Record<string, unknown>, sheet: CocSheet | undefined) => {
+    const stat = str(args.stat, "stat", 60);
+    const s = skillValue(sheet, stat, optInt(args.value, "value", 0, 200));
+    const bonusDice = optInt(args.bonusDice, "bonusDice", -2, 2) ?? 0;
+    const { roll, candidates } = rollD100(rng, bonusDice);
+    const g = grade(roll, s.value);
+    const rank = g.critical ? 4 : g.fumble ? -1 : g.level;
+    const degree = g.critical ? "大成功" : g.fumble ? "大失败" : LEVEL_LABEL[g.level];
+    const r: CheckResult = {
+      system: "coc7",
+      actor: (args.actor as string | null) ?? undefined,
+      stat: s.name,
+      reason,
+      dice: [{ label: "d100", sides: 100, values: candidates, kept: [roll] }],
+      total: roll,
+      target: s.value,
+      outcome: "failure",
+      degree,
+      valueSource: s.source,
+      summary: "",
+    };
+    return { r, rank, value: s.value, bonusDice };
+  };
+  const x = side(a, sa);
+  const y = side(b, sb);
+  const winner =
+    x.rank !== y.rank ? (x.rank > y.rank ? "a" : "b")
+    : x.rank <= 0 ? "tie"
+    : x.value !== y.value ? (x.value > y.value ? "a" : "b")
+    : "tie";
+  const res = (me: "a" | "b") => (winner === "tie" ? "tie" : winner === me ? "win" : "lose");
+  const A = asSide(x.r, sideName(a, "甲方"), res("a"));
+  const B = asSide(y.r, sideName(b, "乙方"), res("b"));
+  const bonusText = (n: number) => (n > 0 ? ` 奖励骰${n}` : n < 0 ? ` 惩罚骰${-n}` : "");
+  const show = (s: typeof x) => (r: CheckResult) => `${r.stat}(${s.value})${bonusText(s.bonusDice)} D100=${r.total} ${r.degree}`;
+  const summary = contestSummary(A, B, winner, (r) => (r === A ? show(x)(r) : show(y)(r)));
+  const notes =
+    winner === "tie"
+      ? [x.rank <= 0 ? "双方都失败：僵持，局面不变" : "成功等级与技能值都相同：平手，可让双方再次对抗或维持现状"]
+      : x.rank === y.rank
+        ? ["成功等级相同，技能值较高的一方胜出"]
+        : [];
+  return { system: "coc7", kind: "opposed", reason, sides: [A, B], winner, summary, notes };
+}
+
 export const coc7: RuleSystem<CocSheet> = {
   id: "coc7",
   name: "克苏鲁的呼唤 第七版",
@@ -229,6 +278,7 @@ export const coc7: RuleSystem<CocSheet> = {
     pushed: sch.nbool("是否孤注一掷（重新尝试一次失败的检定）"),
   }),
   resolveCheck: check,
+  opposed: { omit: ["difficulty", "pushed"], resolve: opposed },
   extraTools: [
     {
       def: {
@@ -292,7 +342,8 @@ export const coc7: RuleSystem<CocSheet> = {
     [
       "规则：克苏鲁的呼唤第七版（CoC7）。",
       "- 检定用 check：stat 填技能/属性名；difficulty 由你根据情境决定（对抗性强或条件恶劣用 hard/extreme）；有利/不利情境用 bonusDice（±1~2）。",
-      "- 只在失败会带来有意义后果时检定。失败后玩家可孤注一掷（pushed=true），失败须给更重后果。",
+      "- 只在失败会带来有意义后果时检定。检定失败后可以在回复里问该玩家要不要孤注一掷，并说明再失败的后果；只有该玩家在之后的发言中明确选择时才用 pushed=true，失败须给更重后果。",
+      "- 与 NPC 或其他玩家角色的对抗（潜行对聆听、话术对心理学、力量对力量）用 opposed_check，比较成功等级。",
       "- 遭遇恐怖时用 sanity_check，损失写法如 0/1d6、1/1d10；临时疯狂等由你按返回的 notes 处理。",
       "- 战斗伤害等任意骰用 roll（如 1d3+1d4）。",
     ].join("\n"),
