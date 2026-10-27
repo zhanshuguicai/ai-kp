@@ -130,6 +130,7 @@ test("secret rolls, KP notes, clocks and whispers never reach the public view", 
     assert(!pub.includes(secret), `public view leaked: ${secret}`);
   assert(pub.includes("老秦避开了你的目光"));
 
+  platform.reveal(campaign.id, { confirm: true });
   const kp = platform.kpView(campaign.id);
   assert.equal(kp.state.clocks["走私船靠岸"].filled, 1);
   assert.deepEqual(kp.state.kpNotes, ["老秦在撒谎，齿轮在他口袋里"]);

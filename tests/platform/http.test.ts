@@ -63,10 +63,48 @@ test("HTTP API: auth, local-only, scenario → campaign → start → message wi
     assert.equal(msg.body.turn.status, "complete");
     assert.match(msg.body.reply, /离线演示/);
 
-    const kp = await call("GET", `/api/v1/campaigns/${id}`);
-    assert(kp.body.events.some((e: any) => e.type === "directive"));
+    // Organizer view: diagnostics, no KP events.
+    const org = await call("GET", `/api/v1/campaigns/${id}`);
+    assert.equal(org.body.diagnostics.length, 2);
+    assert(org.body.public.events.every((e: any) => e.visibility === "public"));
+    assert.equal(org.body.events, undefined);
     const pub = await call("GET", `/api/v1/campaigns/${id}/public`);
     assert(pub.body.events.every((e: any) => e.visibility === "public"));
+
+    // KP view is locked until an explicit reveal.
+    assert.equal((await call("GET", `/api/v1/campaigns/${id}/kp`)).body.error.code, "SPOILER_LOCKED");
+    assert.equal((await call("POST", `/api/v1/campaigns/${id}/reveal`, {})).body.error.code, "CONFIRM_REQUIRED");
+
+    // Players: invite token from campaign creation, separate from the admin token.
+    const invite = cp.body.invites[0];
+    assert.equal(invite.playerId, "p1");
+    const asPlayer = (method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
+      call(method, path, body, { "x-admin-token": "", "x-player-token": invite.token, ...extra });
+    const me = await asPlayer("GET", "/api/v1/play");
+    assert.equal(me.status, 200);
+    assert.equal(me.body.me.name, "林雾");
+    assert.equal((await asPlayer("GET", "/api/v1/play", undefined, { "x-player-token": "tok-is-not-a-player-token" })).status, 401);
+    assert.equal((await asPlayer("GET", `/api/v1/campaigns/${id}`)).status, 401, "a player token is not an admin token");
+    assert.equal((await call("GET", "/api/v1/play")).status, 401, "the admin token is not a player token");
+
+    const said = await asPlayer("POST", "/api/v1/play/messages", { messageId: "pm1", kind: "dialogue", text: "有人吗？" });
+    assert.equal(said.body.turn.status, "complete");
+    assert.equal(said.body.turn.playerId, "p1");
+    const sheet = await asPlayer("PUT", "/api/v1/play/sheet", { sheet: { level: 2, abilities: { dex: 16 } } });
+    assert.equal(sheet.body.me.sheet.level, 2);
+
+    const added = await call("POST", `/api/v1/campaigns/${id}/players`, { id: "p2", name: "周岚" });
+    assert.equal(added.status, 201);
+    assert(added.body.invite.token);
+
+    const revealed = await call("POST", `/api/v1/campaigns/${id}/reveal`, { confirm: true });
+    assert(revealed.body.revealedAt);
+    const kp = await call("GET", `/api/v1/campaigns/${id}/kp`);
+    assert(kp.body.events.some((e: any) => e.type === "directive"));
+
+    const playPage = await fetch(base + "/play");
+    assert.equal(playPage.status, 200);
+    assert.match(await playPage.text(), /play\.js/);
 
     const providers = await call("POST", "/api/v1/providers/openai", { apiKey: "sk-test", model: "custom" });
     assert.equal(providers.body.provider.configured, true);

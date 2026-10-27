@@ -3,18 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI KP 平台</title>
+  <title>AI KP 组织者</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="top">
-    <h1>AI KP 平台</h1>
+    <h1>AI KP · 组织者</h1>
     <form id="token-form" class="token">
       <input id="token" type="password" placeholder="管理令牌（data/admin-token.txt）" autocomplete="off">
       <button type="submit">连接</button>
     </form>
     <span id="status" class="badge">未连接</span>
   </header>
+  <p class="banner">这里不显示任何剧本秘密。你自己也要参加游戏的话，请用你的<strong>玩家链接</strong>进入。</p>
   <p id="notice" class="notice" hidden></p>
 
   <main class="layout">
@@ -28,9 +29,8 @@
         <summary>导入剧本</summary>
         <form id="scenario-form" class="stack">
           <input id="sc-title" placeholder="剧本标题" required>
-          <label class="file">选择 TXT / Markdown 文件<input id="sc-file" type="file" accept=".txt,.md,text/plain,text/markdown"></label>
-          <textarea id="sc-text" rows="6" placeholder="或直接粘贴剧本原文" required></textarea>
-          <textarea id="sc-brief" rows="4" placeholder="KP 概要（可选）：核心真相、主线、关键 NPC 秘密。每轮都会给 KP 看"></textarea>
+          <label class="file">选择 TXT / Markdown 文件<input id="sc-file" type="file" accept=".txt,.md,text/plain,text/markdown" required></label>
+          <p class="muted small">只上传，不显示原文，避免剧透。</p>
           <button type="submit">导入</button>
         </form>
         <ul id="scenarios" class="list small"></ul>
@@ -47,7 +47,7 @@
           <label>辅助模型供应商（做摘要）<select id="cp-aux-provider"></select></label>
           <input id="cp-aux" placeholder="辅助模型（留空：OpenRouter/Anthropic 用 Haiku 5.5）">
           <textarea id="cp-players" rows="3" placeholder="每行一位玩家：id,名字&#10;p1,林雾&#10;p2,周岚" required></textarea>
-          <button type="submit">开团</button>
+          <button type="submit">开团并生成邀请链接</button>
         </form>
       </details>
 
@@ -78,26 +78,28 @@
           <p id="room-meta" class="muted"></p>
         </div>
         <div class="row">
-          <label class="check"><input id="show-kp" type="checkbox" checked> 显示 KP 信息</label>
           <button id="start" type="button">开场</button>
           <button id="compress" type="button" title="立即压缩较早的记录">压缩</button>
         </div>
       </div>
       <ol id="log" class="log"></ol>
-      <form id="message-form" class="composer">
-        <select id="msg-player"></select>
-        <select id="msg-kind">
-          <option value="auto">自动判断</option>
-          <option value="action">行动</option>
-          <option value="dialogue">对话</option>
-          <option value="ooc">题外话</option>
-        </select>
-        <textarea id="msg-text" rows="2" placeholder="玩家发言或行动…（Ctrl+Enter 发送）" required></textarea>
-        <button id="send" type="submit">发送</button>
-      </form>
+      <p class="log-foot muted">公开记录（所有玩家都能看到的内容），每 5 秒自动刷新。</p>
     </section>
 
     <aside class="col right">
+      <section>
+        <h3>玩家与邀请</h3>
+        <ul id="players" class="list small"></ul>
+        <div id="invites"></div>
+        <div class="row">
+          <button id="reissue" type="button">重新生成全部邀请链接</button>
+        </div>
+        <form id="add-player" class="row">
+          <input id="np-id" placeholder="id" required>
+          <input id="np-name" placeholder="名字" required>
+          <button type="submit">加入</button>
+        </form>
+      </section>
       <section>
         <h3>模型与用量</h3>
         <div id="models-info" class="muted">—</div>
@@ -110,20 +112,13 @@
         <div id="usage" class="muted"></div>
       </section>
       <section>
-        <h3>节奏建议</h3>
-        <div id="directives" class="muted">—</div>
+        <h3>运行诊断 <span class="muted small">（不含剧情）</span></h3>
+        <ol id="diagnostics" class="diag"></ol>
       </section>
       <section>
-        <h3>状态</h3>
-        <div id="state"></div>
-      </section>
-      <section>
-        <h3>前情摘要</h3>
-        <div id="summaries" class="muted">尚无</div>
-      </section>
-      <section>
-        <h3>角色卡</h3>
-        <div id="sheets"></div>
+        <h3>复盘</h3>
+        <div id="reveal-box"></div>
+        <div id="kp-view" hidden></div>
       </section>
     </aside>
   </main>

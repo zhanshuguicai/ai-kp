@@ -46,6 +46,8 @@ const STATIC: Record<string, [string, string]> = {
   "/index.html": ["index.html", "text/html; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/style.css": ["style.css", "text/css; charset=utf-8"],
+  "/play": ["play.html", "text/html; charset=utf-8"],
+  "/play.js": ["play.js", "text/javascript; charset=utf-8"],
 };
 
 export function platformServer(platform: Platform, adminToken: string, webDir = resolve("web/platform")): Server {
@@ -94,6 +96,24 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
         return;
       }
       if (path === "/api/v1/health" && method === "GET") return send(200, { status: "ok" });
+
+      // Player API: authenticated by the invite token, never by the admin token.
+      if (path === "/api/v1/play" || path.startsWith("/api/v1/play/")) {
+        const { campaignId, playerId } = platform.authPlayer(req.headers["x-player-token"]);
+        const playRoute = `${method} ${path.slice("/api/v1/play".length) || "/"}`;
+        switch (playRoute) {
+          case "GET /":
+            return send(200, platform.playerView(campaignId, playerId));
+          case "POST /messages":
+            return send(200, await platform.playerMessage(campaignId, playerId, await readBody(req)));
+          case "PUT /sheet":
+            platform.setOwnSheet(campaignId, playerId, await readBody(req));
+            return send(200, { me: platform.playerView(campaignId, playerId).me });
+          default:
+            throw new PlatformError("NOT_FOUND", "接口不存在", 404);
+        }
+      }
+
       checkAdmin(req);
 
       const parts = path.split("/").filter(Boolean).slice(2); // after api/v1
@@ -113,16 +133,30 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
           return send(201, { scenario: platform.addScenario(await readBody(req)) });
         case "GET campaigns":
           return send(200, { campaigns: platform.store.listCampaigns() });
-        case "POST campaigns":
-          return send(201, { campaign: platform.createCampaign(await readBody(req)) });
+        case "POST campaigns": {
+          const campaign = platform.createCampaign(await readBody(req));
+          // Invite tokens are shown once; only their hashes are stored.
+          return send(201, { campaign, invites: platform.issueInvites(campaign.id) });
+        }
         case "GET campaigns/:id":
-          return send(200, platform.kpView(id));
+          return send(200, platform.organizerView(id));
         case "GET campaigns/:id/public":
           return send(200, platform.publicView(id));
+        case "GET campaigns/:id/kp":
+          return send(200, platform.kpView(id));
+        case "POST campaigns/:id/reveal":
+          return send(200, platform.reveal(id, await readBody(req)));
+        case "POST campaigns/:id/invites": {
+          const b = (await readBody(req)) as { playerId?: unknown };
+          return send(200, { invites: platform.issueInvites(id, typeof b?.playerId === "string" ? b.playerId : undefined) });
+        }
+        case "POST campaigns/:id/players":
+          return send(201, { invite: platform.addPlayer(id, await readBody(req)) });
         case "PUT campaigns/:id/models":
           return send(200, { models: platform.setModels(id, await readBody(req)) });
         case "PUT campaigns/:id/characters/:sub":
-          return send(200, { characters: platform.setCharacter(id, decodeURIComponent(sub), await readBody(req)) });
+          platform.setCharacter(id, decodeURIComponent(sub), await readBody(req));
+          return send(200, { players: platform.organizerView(id).players });
         case "POST campaigns/:id/messages":
           return send(200, await platform.message(id, await readBody(req)));
         case "POST campaigns/:id/start":

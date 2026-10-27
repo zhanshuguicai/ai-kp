@@ -59,12 +59,16 @@ export interface Campaign {
   provider: string;
   settings: CampaignSettings;
   createdAt: string;
+  /** When the organizer unlocked the KP view (spoilers). Null = still sealed. */
+  revealedAt: string | null;
 }
 export interface Character {
   campaignId: string;
   playerId: string;
   name: string;
   sheet: unknown;
+  /** Whether an invite link exists for this player (the token itself is never stored). */
+  invited?: boolean;
 }
 export type TurnStatus = "processing" | "complete" | "failed";
 export interface Turn {
@@ -149,10 +153,20 @@ export class Store {
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     if (path !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec(SCHEMA);
+    this.migrate();
   }
 
   close() {
     this.db.close();
+  }
+
+  /** Add columns introduced after the first release, so existing databases keep working. */
+  private migrate() {
+    const has = (table: string, column: string) =>
+      this.db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    if (!has("characters", "token_hash")) this.db.exec("ALTER TABLE characters ADD COLUMN token_hash TEXT");
+    if (!has("campaigns", "revealed_at")) this.db.exec("ALTER TABLE campaigns ADD COLUMN revealed_at TEXT");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS characters_by_token ON characters (token_hash) WHERE token_hash IS NOT NULL");
   }
 
   /** Run fn in a transaction; nested calls join the outer one. */
@@ -231,8 +245,8 @@ export class Store {
   }
 
   // ---------- campaigns ----------
-  createCampaign(c: Omit<Campaign, "id" | "createdAt">, initialState: unknown): Campaign {
-    const campaign: Campaign = { id: randomUUID(), ...c, createdAt: now() };
+  createCampaign(c: Omit<Campaign, "id" | "createdAt" | "revealedAt">, initialState: unknown): Campaign {
+    const campaign: Campaign = { id: randomUUID(), ...c, createdAt: now(), revealedAt: null };
     this.tx(() => {
       this.db
         .prepare("INSERT INTO campaigns (id, name, system_id, scenario_id, provider, settings, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -254,7 +268,24 @@ export class Store {
       provider: String(r.provider),
       settings: normalizeSettings(parse(r.settings)),
       createdAt: String(r.created_at),
+      revealedAt: r.revealed_at === null || r.revealed_at === undefined ? null : String(r.revealed_at),
     };
+  }
+  /** Unlocking spoilers is one-way: once seen, secrets cannot be unseen. */
+  setRevealed(campaignId: string): string {
+    const at = now();
+    const res = this.db.prepare("UPDATE campaigns SET revealed_at = coalesce(revealed_at, ?) WHERE id = ?").run(at, campaignId);
+    ensure(Number(res.changes) === 1, "NOT_FOUND", "团不存在", 404);
+    return this.getCampaign(campaignId).revealedAt!;
+  }
+
+  /** Per-turn diagnostics recorded on directive events. Returns raw data; callers decide what is safe to show. */
+  turnDiagnostics(campaignId: string, limit = 50): { turnId: string | null; data: any }[] {
+    return this.db
+      .prepare("SELECT turn_id, data FROM events WHERE campaign_id = ? AND type = 'directive' ORDER BY seq DESC LIMIT ?")
+      .all(campaignId, limit)
+      .map((r) => ({ turnId: r.turn_id === null ? null : String(r.turn_id), data: parse(r.data) }))
+      .reverse();
   }
   updateSettings(campaignId: string, settings: CampaignSettings) {
     const res = this.db.prepare("UPDATE campaigns SET settings = ? WHERE id = ?").run(json(settings), campaignId);
@@ -315,7 +346,18 @@ export class Store {
         playerId: String(r.player_id),
         name: String(r.name),
         sheet: parse(r.sheet),
+        invited: r.token_hash !== null && r.token_hash !== undefined,
       }));
+  }
+  setPlayerTokenHash(campaignId: string, playerId: string, tokenHash: string) {
+    const res = this.db
+      .prepare("UPDATE characters SET token_hash = ? WHERE campaign_id = ? AND player_id = ?")
+      .run(tokenHash, campaignId, playerId);
+    ensure(Number(res.changes) === 1, "NOT_FOUND", "玩家不存在", 404);
+  }
+  findPlayerByTokenHash(tokenHash: string): { campaignId: string; playerId: string } | undefined {
+    const r = this.db.prepare("SELECT campaign_id, player_id FROM characters WHERE token_hash = ?").get(tokenHash);
+    return r ? { campaignId: String(r.campaign_id), playerId: String(r.player_id) } : undefined;
   }
 
   // ---------- turns ----------
@@ -394,12 +436,26 @@ export class Store {
       ),
     );
   }
-  events(campaignId: string, opts: { afterSeq?: number; limit?: number; publicOnly?: boolean } = {}): GameEvent[] {
+  /**
+   * Events of a campaign. `publicOnly` = what every player sees; `forPlayer` = public events plus
+   * whispers addressed to that player. Neither ever returns KP-only events.
+   */
+  events(
+    campaignId: string,
+    opts: { afterSeq?: number; limit?: number; publicOnly?: boolean; forPlayer?: string } = {},
+  ): GameEvent[] {
+    const filter =
+      opts.forPlayer !== undefined
+        ? "AND (visibility = 'public' OR (visibility = 'whisper' AND actor = ?))"
+        : opts.publicOnly
+          ? "AND visibility = 'public'"
+          : "";
+    const params: (string | number)[] = [campaignId, opts.afterSeq ?? 0];
+    if (opts.forPlayer !== undefined) params.push(opts.forPlayer);
+    params.push(opts.limit ?? 1_000_000);
     const rows = this.db
-      .prepare(
-        `SELECT * FROM events WHERE campaign_id = ? AND seq > ? ${opts.publicOnly ? "AND visibility = 'public'" : ""} ORDER BY seq DESC LIMIT ?`,
-      )
-      .all(campaignId, opts.afterSeq ?? 0, opts.limit ?? 1_000_000);
+      .prepare(`SELECT * FROM events WHERE campaign_id = ? AND seq > ? ${filter} ORDER BY seq DESC LIMIT ?`)
+      .all(...params);
     return rows.reverse().map((r) => ({
       seq: Number(r.seq),
       campaignId: String(r.campaign_id),

@@ -2,6 +2,7 @@
 //   player message → dedupe → assemble layered context → KP tool loop → one transaction commit
 //   → background compression.
 import { PlatformError, ensure } from "./errors.js";
+import { createHash, randomBytes } from "node:crypto";
 import { Store, normalizeSettings, type Campaign, type CampaignSettings, type GameEvent, type NewEvent, type Turn } from "./storage/store.js";
 import { chunkScenario } from "./scenario/chunker.js";
 import { ScenarioIndex } from "./scenario/retriever.js";
@@ -38,6 +39,8 @@ export interface PlatformOptions {
   /** Run compression after each turn (default true). */
   autoCompress?: boolean;
 }
+
+const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 export type ModelRole = "main" | "aux";
 export interface ResolvedModels {
@@ -226,8 +229,137 @@ export class Platform {
     return this.store.characters(campaignId);
   }
 
+  // ---------------- players & invites ----------------
+  /** Create (or replace) invite tokens. Only a hash is stored; old links stop working. */
+  issueInvites(campaignId: string, playerId?: string) {
+    this.store.getCampaign(campaignId);
+    const targets = this.store.characters(campaignId).filter((c) => !playerId || c.playerId === playerId);
+    ensure(targets.length, "NOT_FOUND", "玩家不存在", 404);
+    return targets.map((c) => {
+      const token = randomBytes(24).toString("base64url");
+      this.store.setPlayerTokenHash(campaignId, c.playerId, hashToken(token));
+      return { playerId: c.playerId, name: c.name, token };
+    });
+  }
+  addPlayer(campaignId: string, body: unknown) {
+    const c = this.store.getCampaign(campaignId);
+    const b = obj(body);
+    const id = str(b.id, "id", 64);
+    ensure(!this.store.characters(campaignId).some((p) => p.playerId === id), "INVALID_INPUT", "玩家 id 已存在");
+    ensure(this.store.characters(campaignId).length < 12, "INVALID_INPUT", "每个团最多 12 名玩家");
+    this.store.upsertCharacter({ campaignId: c.id, playerId: id, name: str(b.name, "name", 60), sheet: null });
+    return this.issueInvites(campaignId, id)[0];
+  }
+  /** Resolve a player invite token. */
+  authPlayer(token: unknown): { campaignId: string; playerId: string } {
+    ensure(typeof token === "string" && token.length >= 20 && token.length <= 100, "PLAYER_REQUIRED", "需要玩家邀请链接", 401);
+    const hit = this.store.findPlayerByTokenHash(hashToken(token as string));
+    ensure(hit, "PLAYER_REQUIRED", "邀请链接无效或已被重新生成", 401);
+    return hit;
+  }
+
+  // ---------------- views ----------------
+  /**
+   * What the organizer sees: setup, health and cost, and the same public log every player sees.
+   * Nothing here may contain secrets: no KP notes, clocks, secret rolls, whispers, KP summaries,
+   * directive texts or scenario text.
+   */
+  organizerView(campaignId: string) {
+    const campaign = this.store.getCampaign(campaignId);
+    const characters = this.store.characters(campaignId);
+    const turns = this.store.turns(campaignId, 50);
+    const turnN = new Map(turns.map((t) => [t.id, t.n]));
+    const summaries = this.store.activeSummaries(campaignId);
+    const scenario = this.store.getScenario(campaign.scenarioId);
+    return {
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        systemId: campaign.systemId,
+        provider: campaign.provider,
+        createdAt: campaign.createdAt,
+        revealedAt: campaign.revealedAt,
+        models: campaign.settings.models,
+      },
+      models: this.safeModels(campaign),
+      usage: this.store.usageTotals(campaignId),
+      scenario: { id: scenario.id, title: scenario.title, characters: scenario.text.length, chunks: this.index(scenario.id).size },
+      players: characters.map((c) => ({ id: c.playerId, name: c.name, invited: !!c.invited, hasSheet: c.sheet !== null })),
+      turns: turns.map((t) => ({
+        n: t.n,
+        status: t.status,
+        player: t.playerId ? (characters.find((c) => c.playerId === t.playerId)?.name ?? t.playerId) : null,
+        error: t.error,
+        at: t.createdAt,
+      })),
+      diagnostics: this.store.turnDiagnostics(campaignId, 50).map(({ turnId, data }) => ({
+        n: turnId ? (turnN.get(turnId) ?? null) : null,
+        via: data?.trace?.via ?? null,
+        rounds: data?.trace?.rounds ?? null,
+        tools: (data?.trace?.toolCalls ?? []).map((c: any) => ({ name: c.name, ok: c.ok, error: c.error ?? null })),
+        // Kinds only: the reason texts can name clocks, clues and plans.
+        directives: (data?.directives ?? []).map((d: any) => d.kind),
+        contextTokens: data?.context?.total ?? null,
+        usage: data?.trace?.usage ?? null,
+      })),
+      memory: { summaries: summaries.length, chapters: summaries.filter((s) => s.level === 2).length },
+      public: this.publicView(campaignId),
+    };
+  }
+
+  /** What one player sees: public events and state, plus whispers to them and their own sheet. */
+  playerView(campaignId: string, playerId: string) {
+    const pub = this.publicView(campaignId);
+    const me = this.store.characters(campaignId).find((c) => c.playerId === playerId);
+    ensure(me, "PLAYER_REQUIRED", "玩家已不在这个团里", 401);
+    const system = getRuleSystem(this.store.getCampaign(campaignId).systemId);
+    return {
+      ...pub,
+      me: { id: me.playerId, name: me.name, sheet: me.sheet, exampleSheet: system.exampleSheet(), systemName: system.name },
+      events: this.store.events(campaignId, { limit: 300, forPlayer: playerId }),
+    };
+  }
+  setOwnSheet(campaignId: string, playerId: string, body: unknown) {
+    const me = this.store.characters(campaignId).find((c) => c.playerId === playerId);
+    ensure(me, "PLAYER_REQUIRED", "玩家已不在这个团里", 401);
+    const b = obj(body);
+    return this.setCharacter(campaignId, playerId, { name: b.name ?? me.name, sheet: b.sheet });
+  }
+  playerMessage(campaignId: string, playerId: string, body: unknown): Promise<TurnOutcome> {
+    const b = obj(body);
+    return this.message(campaignId, { ...b, playerId }).then((out) => ({
+      ...out,
+      events: this.store.events(campaignId, { limit: 200, forPlayer: playerId }).filter((e) => e.turnId === out.turn.id),
+    }));
+  }
+
+  /**
+   * Unlock the KP view for this campaign. One-way, and announced to the table so everyone knows
+   * the organizer can now see secrets.
+   */
+  reveal(campaignId: string, body: unknown) {
+    const b = obj(body);
+    ensure(b.confirm === true, "CONFIRM_REQUIRED", "解锁会看到全部秘密且无法撤销，需要 confirm: true");
+    const before = this.store.getCampaign(campaignId).revealedAt;
+    const at = this.store.setRevealed(campaignId);
+    if (!before)
+      this.store.appendEvents(campaignId, [
+        {
+          turnId: null,
+          type: "system",
+          actor: null,
+          visibility: "public",
+          text: "组织者解锁了 KP 视图（复盘或调试）。从现在起，本团的秘密对组织者不再保密。",
+          data: { revealedAt: at },
+        },
+      ]);
+    return { revealedAt: at };
+  }
+
+  /** Full KP view with every secret. Only after the organizer explicitly unlocked it. */
   kpView(campaignId: string) {
     const campaign = this.store.getCampaign(campaignId);
+    ensure(campaign.revealedAt, "SPOILER_LOCKED", "KP 视图已锁定：包含剧本秘密。复盘时可在组织者页面解锁", 403);
     const { state, version } = this.store.getState<WorldState>(campaignId);
     return {
       campaign,
@@ -445,9 +577,11 @@ export class Platform {
   }
 
   /** Compress now regardless of thresholds (manual button). Runs in the campaign queue. */
-  compressNow(campaignId: string) {
+  /** Returns only whether summaries were written: their KP text would be a spoiler. */
+  async compressNow(campaignId: string) {
     const campaign = this.store.getCampaign(campaignId);
-    return this.enqueue(campaignId, () => compress(this.store, campaign, this.modelFor(campaign, "aux"), { force: true }));
+    const r = await this.enqueue(campaignId, () => compress(this.store, campaign, this.modelFor(campaign, "aux"), { force: true }));
+    return { level1: !!r.level1, level2: !!r.level2 };
   }
 
   /** Wait for queued turns and background compression of a campaign (tests, shutdown). */

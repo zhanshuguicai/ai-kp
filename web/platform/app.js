@@ -1,4 +1,6 @@
-// AI KP platform console. All rendering uses textContent; nothing from the server is parsed as HTML.
+// Organizer console. Shows setup, health and cost, and the public log only — never secrets.
+// The KP view is fetched separately and only after the organizer unlocks it for review.
+// All rendering uses textContent; nothing from the server is parsed as HTML.
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -6,20 +8,20 @@ const el = (tag, cls, text) => {
   if (text !== undefined) n.textContent = text;
   return n;
 };
+const option = (value, label) => { const o = el("option", "", label); o.value = value; return o; };
 
 const saved = (() => {
-  try { return JSON.parse(sessionStorage.getItem("aikp-platform") || "{}"); } catch { return {}; }
+  try { return JSON.parse(sessionStorage.getItem("aikp-organizer") || "{}"); } catch { return {}; }
 })();
 let token = saved.token || "";
 let campaignId = saved.campaignId || "";
-let systems = [];
 let view = null;
 let busy = false;
+let poll = null;
 
 function remember() {
-  try { sessionStorage.setItem("aikp-platform", JSON.stringify({ token, campaignId })); } catch {}
+  try { sessionStorage.setItem("aikp-organizer", JSON.stringify({ token, campaignId })); } catch {}
 }
-
 function notice(text, ok = false) {
   $("notice").hidden = !text;
   $("notice").textContent = text || "";
@@ -49,26 +51,20 @@ async function api(method, path, body) {
   $("status").className = "badge good";
   return data;
 }
-
 async function run(fn) {
   try { notice(""); await fn(); } catch (e) { notice(e.message || String(e)); }
 }
-
 function setBusy(b) {
   busy = b;
-  for (const id of ["send", "start", "compress"]) $(id).disabled = b || !campaignId;
-  $("send").textContent = b ? "KP 思考中…" : "发送";
+  for (const id of ["start", "compress", "reissue"]) $(id).disabled = b || !campaignId;
 }
-
-const option = (value, label) => { const o = el("option", "", label); o.value = value; return o; };
 
 // ---------------- loading ----------------
 async function loadAll() {
   const [sys, prov, sc, cp] = await Promise.all([
     api("GET", "/systems"), api("GET", "/providers"), api("GET", "/scenarios"), api("GET", "/campaigns"),
   ]);
-  systems = sys.systems;
-  $("cp-system").replaceChildren(...systems.map((s) => option(s.id, s.name)));
+  $("cp-system").replaceChildren(...sys.systems.map((s) => option(s.id, s.name)));
   $("cp-provider").replaceChildren(...prov.providers.map((p) => option(p.id, `${p.id}${p.configured ? "" : "（未配置）"}`)));
   $("pv-id").replaceChildren(...prov.providers.filter((p) => p.id !== "demo").map((p) => option(p.id, p.id)));
   $("providers").replaceChildren(...prov.providers.map((p) => el("li", "", `${p.id}：${p.model}${p.reasoningEffort ? ` · 推理 ${p.reasoningEffort}` : ""} · ${p.configured ? "已配置" : "未配置"}`)));
@@ -76,7 +72,7 @@ async function loadAll() {
   $("cp-aux-provider").replaceChildren(...auxOptions());
   $("md-aux-provider").replaceChildren(...auxOptions());
   $("cp-scenario").replaceChildren(...sc.scenarios.map((s) => option(s.id, s.title)));
-  $("scenarios").replaceChildren(...sc.scenarios.map((s) => el("li", "", `${s.title} · ${s.characters} 字 · ${s.chunks} 段${s.hasBrief ? " · 有概要" : ""}`)));
+  $("scenarios").replaceChildren(...sc.scenarios.map((s) => el("li", "", `${s.title} · ${s.characters} 字 · ${s.chunks} 段`)));
   renderCampaigns(cp.campaigns);
   if (campaignId) await loadCampaign();
 }
@@ -87,7 +83,12 @@ function renderCampaigns(list) {
       const li = el("li");
       const b = el("button", c.id === campaignId ? "active" : "", `${c.name} · ${c.systemId} · ${c.provider} · ${c.turns} 轮`);
       b.type = "button";
-      b.onclick = () => run(async () => { campaignId = c.id; remember(); await loadCampaign(); renderCampaigns(list); });
+      b.onclick = () => run(async () => {
+        campaignId = c.id; remember();
+        $("invites").replaceChildren();
+        $("kp-view").hidden = true;
+        await loadCampaign(); renderCampaigns(list);
+      });
       li.append(b);
       return li;
     }) : [el("li", "muted", "还没有团")]),
@@ -101,70 +102,122 @@ async function loadCampaign() {
   } catch (e) {
     campaignId = ""; remember(); view = null; throw e;
   }
-  renderCampaign();
-  setBusy(false);
+  render();
+  setBusy(busy);
 }
 
 // ---------------- rendering ----------------
-const nameOf = (id) => view?.characters.find((c) => c.playerId === id)?.name || id;
-
-function renderCampaign() {
-  const { campaign, characters, state, summaries, events, scenario } = view;
+function render() {
+  const { campaign, scenario, players, public: pub } = view;
   $("room-name").textContent = campaign.name;
-  $("room-meta").textContent = `${scenario.title} · ${campaign.systemId} · ${campaign.provider} · ${characters.length} 位玩家`;
-  $("msg-player").replaceChildren(...characters.map((c) => option(c.playerId, c.name)));
-
-  const log = $("log");
-  log.replaceChildren(...events.filter((e) => e.type !== "directive").map(renderEvent));
-  log.scrollTop = log.scrollHeight;
-
-  const last = [...events].reverse().find((e) => e.type === "directive");
-  const ds = last?.data?.directives || [];
-  $("directives").replaceChildren(...(ds.length ? ds.map((d) => el("div", "directive", `【${d.kind}】${d.reason}`)) : [el("span", "muted", "节奏正常")]));
-  if (last?.data?.context) $("directives").append(el("div", "muted", `上下文约 ${last.data.context.total} tokens`));
-
+  $("room-meta").textContent = `${scenario.title} · ${campaign.systemId} · ${campaign.provider} · ${players.length} 位玩家`;
+  renderLog(pub.events);
+  renderPlayers();
   renderModels();
-  renderState(state);
-  $("summaries").replaceChildren(
-    ...(summaries.length ? summaries.map((s) => el("p", "", `${s.level === 2 ? "【章节】" : "【片段】"}${$("show-kp").checked ? s.kpText : s.publicText}`)) : [el("span", "muted", "尚无（记录变长后会自动压缩）")]),
-  );
-  renderSheets(characters, campaign.systemId);
+  renderDiagnostics();
+  renderReveal();
+}
+
+const nameOf = (id) => view?.players.find((p) => p.id === id)?.name || id;
+
+function renderLog(events) {
+  const log = $("log");
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.replaceChildren(...events.map((e) => {
+    const li = el("li", e.type);
+    const label = { player: `${e.actor ? nameOf(e.actor) : "主持请求"}${e.data?.kind ? ` · ${e.data.kind}` : ""}`, kp: "KP", roll: "骰点", error: "错误", system: "系统" }[e.type] ?? "";
+    if (label) li.append(el("div", "who", label));
+    li.append(el("div", "", e.text));
+    return li;
+  }));
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function renderPlayers() {
+  $("players").replaceChildren(...view.players.map((p) =>
+    el("li", "", `${p.name}（${p.id}）· ${p.invited ? "已有邀请链接" : "未生成链接"} · ${p.hasSheet ? "有角色卡" : "无角色卡"}`)));
+}
+
+function showInvites(invites) {
+  const box = $("invites");
+  box.replaceChildren(el("p", "muted small", "邀请链接只显示这一次，请发给对应玩家。重新生成后旧链接失效。"));
+  for (const inv of invites) {
+    const url = `${location.origin}/play#t=${inv.token}`;
+    const row = el("div", "invite");
+    row.append(el("strong", "", inv.name));
+    const input = el("input");
+    input.readOnly = true;
+    input.value = url;
+    input.onfocus = () => input.select();
+    const copy = el("button", "", "复制");
+    copy.type = "button";
+    copy.onclick = () => run(async () => { await navigator.clipboard.writeText(url); notice(`已复制 ${inv.name} 的链接`, true); });
+    const open = el("a", "", "打开");
+    open.href = url;
+    open.target = "_blank";
+    open.rel = "noopener";
+    row.append(input, copy, open);
+    box.append(row);
+  }
 }
 
 function renderModels() {
   const m = view.models;
   $("models-info").replaceChildren(
-    ...(m
-      ? [el("div", "", `主力：${m.main.provider} · ${m.main.model}`), el("div", "", `辅助：${m.aux.provider} · ${m.aux.model}`)]
+    ...(m ? [el("div", "", `主力：${m.main.provider} · ${m.main.model}`), el("div", "", `辅助：${m.aux.provider} · ${m.aux.model}`)]
       : [el("div", "", "模型配置无效，请检查供应商设置")]),
   );
-  const s = view.campaign.settings.models;
-  $("md-main").value = s.main || "";
-  $("md-aux-provider").value = s.auxProvider || "";
-  $("md-aux").value = s.auxModel || "";
+  const s = view.campaign.models;
+  if (document.activeElement?.closest?.("#models-form") == null) {
+    $("md-main").value = s.main || "";
+    $("md-aux-provider").value = s.auxProvider || "";
+    $("md-aux").value = s.auxModel || "";
+  }
   const u = view.usage;
   const k = (n) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : String(n));
   $("usage").textContent = u.turns
-    ? `${u.turns} 轮 · 输入 ${k(u.input)}（缓存 ${u.input ? Math.round((u.cached / u.input) * 100) : 0}%）· 输出 ${k(u.output)}${u.cost !== null ? ` · ${u.cost.toFixed(3)}` : ""}`
+    ? `${u.turns} 轮 · 输入 ${k(u.input)}（缓存 ${u.input ? Math.round((u.cached / u.input) * 100) : 0}%）· 输出 ${k(u.output)}${u.cost !== null ? ` · $${u.cost.toFixed(3)}` : ""} · 摘要 ${view.memory.summaries} 段`
     : "尚无用量";
 }
 
-function renderEvent(e) {
-  const hidden = e.visibility !== "public";
-  const cls = e.type === "whisper" ? "whisper" : hidden ? "hidden-info" : e.type;
-  const li = el("li", cls);
-  const label = {
-    player: `${e.actor ? nameOf(e.actor) : "主持请求"}${e.data?.kind ? ` · ${e.data.kind}` : ""}`,
-    kp: "KP",
-    roll: hidden ? "暗骰（仅 KP）" : "骰点",
-    state: hidden ? "状态（仅 KP）" : "",
-    note: "KP 笔记",
-    whisper: `私聊 → ${nameOf(e.actor)}`,
-    error: "错误",
-  }[e.type] ?? e.type;
-  if (label) li.append(el("div", "who", label));
-  li.append(el("div", "", e.text));
-  return li;
+const DIRECTIVE = { hint: "给线索", escalate: "加压", breathe: "喘息", spotlight: "聚光", wrap_up: "收束" };
+
+function renderDiagnostics() {
+  const failed = new Map(view.turns.filter((t) => t.status === "failed").map((t) => [t.n, t.error]));
+  const items = view.diagnostics.slice(-15).reverse().map((d) => {
+    const li = el("li");
+    const tools = d.tools.map((t) => `${t.name}${t.ok ? "" : `✗${t.error ? `(${t.error})` : ""}`}`).join(" ");
+    const kinds = d.directives.length ? d.directives.map((k) => DIRECTIVE[k] || k).join("、") : "无";
+    const cost = d.usage?.cost != null ? ` · $${d.usage.cost.toFixed(4)}` : "";
+    li.append(
+      el("div", "", `第 ${d.n ?? "?"} 轮 · ${d.rounds ?? "?"} 步 · ${d.via === "text" ? "纯文本回复" : "reply 工具"} · 上下文 ${d.contextTokens ?? "?"}${cost}`),
+      el("div", "muted small", `工具：${tools || "无"}`),
+      el("div", "muted small", `节奏建议：${kinds}`),
+    );
+    return li;
+  });
+  const failures = [...failed].reverse().slice(0, 5).map(([n, err]) => el("li", "bad", `第 ${n} 轮失败：${err}`));
+  $("diagnostics").replaceChildren(...failures, ...(items.length ? items : [el("li", "muted", "尚无回合")]));
+}
+
+function renderReveal() {
+  const box = $("reveal-box");
+  if (!view.campaign.revealedAt) {
+    const b = el("button", "danger", "解锁 KP 视图（会被剧透）");
+    b.type = "button";
+    b.onclick = () => run(async () => {
+      if (!confirm("解锁后你会看到本团全部秘密：剧本真相、KP 笔记、暗骰、威胁时钟。\n这个操作无法撤销，并会公开告知所有玩家。\n\n只建议在游戏结束后复盘时使用。确定解锁吗？")) return;
+      await api("POST", `/campaigns/${campaignId}/reveal`, { confirm: true });
+      await loadCampaign();
+      await showKp();
+    });
+    box.replaceChildren(el("p", "muted small", "KP 视图已锁定。游戏结束后可以解锁复盘。"), b);
+  } else {
+    const b = el("button", "", "查看 KP 视图");
+    b.type = "button";
+    b.onclick = () => run(showKp);
+    box.replaceChildren(el("p", "muted small", `已于 ${new Date(view.campaign.revealedAt).toLocaleString()} 解锁。`), b);
+  }
 }
 
 function list(title, items) {
@@ -177,57 +230,22 @@ function list(title, items) {
   return box;
 }
 
-function renderState(s) {
-  const kp = $("show-kp").checked;
-  const parts = [
-    el("p", "", `场景：${s.scene.name}${s.scene.description ? ` —— ${s.scene.description}` : ""} · 紧张度 ${s.tension}/5`),
-    list("剧情线", s.threads.map((t) => `[${t.kind === "main" ? "主" : "支"}] ${t.title} · ${t.status}`)),
-    list("线索", s.clues.map((c) => `${c.text}（第${c.turn}轮）`)),
-    list("NPC", Object.entries(s.npcs).map(([n, v]) => `${n}：${v.status}${v.attitude ? ` · ${v.attitude}` : ""}`)),
-  ];
-  if (kp) {
-    parts.push(list("威胁时钟（KP）", Object.entries(s.clocks).map(([n, c]) => `${n} ${c.filled}/${c.size}${c.note ? ` · ${c.note}` : ""}`)));
-    parts.push(list("KP 笔记", s.kpNotes));
-  }
-  $("state").replaceChildren(...parts);
-}
-
-function renderSheets(characters, systemId) {
-  const example = systems.find((s) => s.id === systemId)?.exampleSheet;
-  $("sheets").replaceChildren(...characters.map((c) => {
-    const box = el("div", "sheet");
-    box.append(el("strong", "", c.name));
-    const ta = el("textarea");
-    ta.rows = 5;
-    ta.value = c.sheet ? JSON.stringify(c.sheet, null, 1) : "";
-    ta.placeholder = example ? `示例：${JSON.stringify(example)}` : "JSON 角色卡";
-    const b = el("button", "", "保存角色卡");
-    b.type = "button";
-    b.onclick = () => run(async () => {
-      const sheet = ta.value.trim() ? JSON.parse(ta.value) : null;
-      await api("PUT", `/campaigns/${campaignId}/characters/${encodeURIComponent(c.playerId)}`, { name: c.name, sheet });
-      notice(`${c.name} 的角色卡已保存`, true);
-      await loadCampaign();
-    });
-    box.append(ta, b);
-    return box;
-  }));
+async function showKp() {
+  const kp = await api("GET", `/campaigns/${campaignId}/kp`);
+  const s = kp.state;
+  const box = $("kp-view");
+  box.hidden = false;
+  box.replaceChildren(
+    list("KP 笔记", s.kpNotes),
+    list("威胁时钟", Object.entries(s.clocks).map(([n, c]) => `${n} ${c.filled}/${c.size}${c.note ? ` · ${c.note}` : ""}`)),
+    list("线索", s.clues.map((c) => c.text)),
+    list("KP 版摘要", kp.summaries.map((x) => x.kpText)),
+    list("暗骰与 KP 记录", kp.events.filter((e) => e.visibility !== "public" && e.type !== "directive").map((e) => `[${e.type}] ${e.text}`)),
+  );
 }
 
 // ---------------- actions ----------------
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
-
-async function playTurn(path, body) {
-  setBusy(true);
-  try {
-    const r = await api("POST", `/campaigns/${campaignId}/${path}`, body);
-    if (r.turn.status === "failed") notice(r.turn.error || "本轮失败");
-    await loadAll(); // also refreshes turn counts in the campaign list
-    return r;
-  } finally {
-    setBusy(false);
-  }
-}
 
 $("token-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -236,21 +254,21 @@ $("token-form").addEventListener("submit", (e) => {
   run(loadAll);
 });
 
-$("sc-file").addEventListener("change", async () => {
-  const f = $("sc-file").files[0];
-  if (!f) return;
-  $("sc-text").value = await f.text();
-  if (!$("sc-title").value) $("sc-title").value = f.name.replace(/\.(txt|md)$/i, "");
-});
-
 $("scenario-form").addEventListener("submit", (e) => {
   e.preventDefault();
   run(async () => {
-    const r = await api("POST", "/scenarios", { title: $("sc-title").value, text: $("sc-text").value, brief: $("sc-brief").value || undefined });
+    const f = $("sc-file").files[0];
+    if (!f) throw new Error("请选择剧本文件");
+    const text = await f.text();
+    const r = await api("POST", "/scenarios", { title: $("sc-title").value || f.name.replace(/\.(txt|md)$/i, ""), text });
     notice(`已导入《${r.scenario.title}》：${r.scenario.characters} 字，切成 ${r.scenario.chunks} 段`, true);
     $("scenario-form").reset();
     await loadAll();
   });
+});
+$("sc-file").addEventListener("change", () => {
+  const f = $("sc-file").files[0];
+  if (f && !$("sc-title").value) $("sc-title").value = f.name.replace(/\.(txt|md)$/i, "");
 });
 
 $("campaign-form").addEventListener("submit", (e) => {
@@ -258,7 +276,7 @@ $("campaign-form").addEventListener("submit", (e) => {
   run(async () => {
     const players = $("cp-players").value.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
       const [id, ...rest] = l.split(/[,，]/);
-      return { id: id.trim(), name: (rest.join(",").trim() || id.trim()) };
+      return { id: id.trim(), name: rest.join(",").trim() || id.trim() };
     });
     const r = await api("POST", "/campaigns", {
       name: $("cp-name").value, scenarioId: $("cp-scenario").value, systemId: $("cp-system").value,
@@ -267,8 +285,9 @@ $("campaign-form").addEventListener("submit", (e) => {
     });
     campaignId = r.campaign.id;
     remember();
-    notice("团已建立，可以点「开场」", true);
     await loadAll();
+    showInvites(r.invites);
+    notice("团已建立。把邀请链接发给玩家，然后点「开场」", true);
   });
 });
 
@@ -301,29 +320,45 @@ $("models-form").addEventListener("submit", (e) => {
   });
 });
 
-$("message-form").addEventListener("submit", (e) => {
+$("reissue").addEventListener("click", () => run(async () => {
+  if (!confirm("重新生成后，所有旧的邀请链接都会失效。继续吗？")) return;
+  const r = await api("POST", `/campaigns/${campaignId}/invites`, {});
+  showInvites(r.invites);
+  await loadCampaign();
+}));
+
+$("add-player").addEventListener("submit", (e) => {
   e.preventDefault();
-  if (busy || !campaignId) return;
-  const text = $("msg-text").value.trim();
-  if (!text) return;
+  if (!campaignId) return;
   run(async () => {
-    await playTurn("messages", { messageId: newId(), playerId: $("msg-player").value, kind: $("msg-kind").value, text });
-    $("msg-text").value = "";
+    const r = await api("POST", `/campaigns/${campaignId}/players`, { id: $("np-id").value.trim(), name: $("np-name").value.trim() });
+    $("add-player").reset();
+    showInvites([r.invite]);
+    await loadCampaign();
   });
 });
-$("msg-text").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && e.ctrlKey) $("message-form").requestSubmit();
-});
-$("start").addEventListener("click", () => run(() => playTurn("start", { messageId: newId() })));
+
+$("start").addEventListener("click", () => run(async () => {
+  setBusy(true);
+  try {
+    const r = await api("POST", `/campaigns/${campaignId}/start`, { messageId: newId() });
+    if (r.turn.status === "failed") notice(r.turn.error || "开场失败");
+    await loadAll();
+  } finally { setBusy(false); }
+}));
 $("compress").addEventListener("click", () => run(async () => {
   setBusy(true);
-  try { await api("POST", `/campaigns/${campaignId}/compress`, {}); notice("已压缩较早的记录", true); await loadCampaign(); }
-  finally { setBusy(false); }
+  try {
+    const r = await api("POST", `/campaigns/${campaignId}/compress`, {});
+    notice(r.level1 || r.level2 ? "已压缩较早的记录" : "记录还不够长，无需压缩", true);
+    await loadCampaign();
+  } finally { setBusy(false); }
 }));
-$("show-kp").addEventListener("change", () => {
-  $("log").classList.toggle("hide-kp", !$("show-kp").checked);
-  if (view) renderCampaign();
-});
+
+// Refresh the public log while players are playing.
+poll = setInterval(() => {
+  if (!busy && campaignId && token && !document.hidden) loadCampaign().catch(() => {});
+}, 5000);
 
 $("token").value = token;
 setBusy(false);

@@ -106,3 +106,29 @@ summary { cursor: pointer; color: var(--accent); font-weight: 600; }
   .composer { grid-template-columns: 1fr 1fr; }
   .composer textarea { grid-column: 1 / -1; }
 }
+
+/* ---- organizer / player additions ---- */
+.banner { margin: 8px 16px 0; padding: 6px 12px; border-radius: 6px; background: #1a2333; color: var(--muted); font-size: 13px; }
+.banner strong { color: var(--accent); }
+.small { font-size: 12px; }
+.log-foot { margin: 0; padding: 6px 14px 10px; font-size: 12px; }
+.log .system { border-left-color: var(--kp); color: var(--kp); font-size: 13px; }
+.log .mine { border-left-color: var(--accent); }
+.invite { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; margin: 6px 0; }
+.invite a { color: var(--accent); }
+.diag { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: 12px; }
+.diag li { padding: 6px 8px; border-radius: 6px; background: #0f1520; }
+.diag li.bad { color: var(--bad); }
+.list li.bad { color: var(--bad); }
+button.danger { border-color: #7a3a3a; background: #3a2222; }
+button.danger:hover { background: #4a2a2a; }
+#add-player { margin-top: 8px; }
+#add-player input { min-width: 0; }
+.layout.play { grid-template-columns: minmax(0, 1fr) 320px; }
+.layout.play .composer { grid-template-columns: 120px 1fr auto; }
+.right textarea#sheet { font-family: Consolas, monospace; font-size: 12px; }
+@media (max-width: 1100px) {
+  .layout.play { grid-template-columns: 1fr; }
+  .layout.play .composer { grid-template-columns: 1fr auto; }
+  .layout.play .composer textarea { grid-column: 1 / -1; }
+}

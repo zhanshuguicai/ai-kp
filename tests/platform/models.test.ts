@@ -86,6 +86,7 @@ test("token usage and cost are summed per turn and per campaign", async () => {
   const { platform, campaign } = setup({ provider, rng: scriptedRng([4]) });
   await platform.message(campaign.id, { messageId: "a", playerId: "p1", kind: "action", text: "掷骰" });
   await platform.message(campaign.id, { messageId: "b", playerId: "p1", kind: "auto", text: "继续" });
+  platform.reveal(campaign.id, { confirm: true });
   const kp = platform.kpView(campaign.id);
   const firstTrace = kp.events.find((e) => e.type === "directive")!.data.trace;
   assert.deepEqual(firstTrace.usage, { input: 2200, output: 40, cached: 1100, cost: 0.03, calls: 2 });
