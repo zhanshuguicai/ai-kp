@@ -7,7 +7,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node --env-file-if-exists=.env dist/src/server.js",
-    "test": "npm run build && node --test dist/tests/*.test.js"
+    "test": "npm run build && node --test \"dist/tests/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
