@@ -10,10 +10,18 @@ import { PlatformError } from "../errors.js";
 const CACHE = { type: "ephemeral" } as const;
 
 function systemMessage(req: Pick<StepRequest, "system" | "systemParts">, model: string) {
-  // Only Anthropic models need explicit breakpoints; Gemini and OpenAI cache prefixes implicitly.
-  if (!model.startsWith("anthropic/") || !req.systemParts) return { role: "system", content: req.system };
-  const parts = [req.systemParts.stable, req.systemParts.dynamic].filter((t) => t.trim());
-  return { role: "system", content: parts.map((text) => ({ type: "text", text, cache_control: CACHE })) };
+  if (!req.systemParts) return { role: "system", content: req.system };
+  const { stable, dynamic } = req.systemParts;
+  // Claude: a breakpoint after each part. Gemini on OpenRouter uses only the last breakpoint, and its
+  // implicit cache missed in testing, so mark the stable part (tools + instructions + KP guide) explicitly.
+  if (model.startsWith("anthropic/"))
+    return { role: "system", content: [stable, dynamic].filter((t) => t.trim()).map((text) => ({ type: "text", text, cache_control: CACHE })) };
+  if (model.startsWith("google/"))
+    return {
+      role: "system",
+      content: [{ type: "text", text: stable, cache_control: CACHE }, ...(dynamic.trim() ? [{ type: "text", text: dynamic }] : [])],
+    };
+  return { role: "system", content: req.system };
 }
 
 function messages(history: HistoryItem[]): unknown[] {

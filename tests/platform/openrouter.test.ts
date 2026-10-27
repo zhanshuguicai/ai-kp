@@ -4,6 +4,9 @@ import { openrouterProvider } from "../../src/platform/providers/openrouter.js";
 import { anthropicProvider } from "../../src/platform/providers/anthropic.js";
 import { createProvider, resolveProviderConfig } from "../../src/platform/providers/index.js";
 import type { HistoryItem } from "../../src/platform/providers/types.js";
+import { setRetryDelay } from "../../src/platform/providers/http.js";
+
+setRetryDelay(0);
 
 const config = {
   model: "anthropic/claude-opus-5.5",
@@ -58,11 +61,16 @@ test("openrouter: chat completions shape, cached system blocks for Claude, reaso
   assert.deepEqual(body.tools[0], { type: "function", function: { name: "reply", description: "d", parameters: tools[0].parameters } });
 });
 
-test("openrouter: non-Claude models get a plain system string (implicit caching)", async () => {
-  const { fetcher, sent } = fakeFetch([ok("好")]);
+test("openrouter: Gemini gets one breakpoint on the stable part; other models a plain system string", async () => {
+  const { fetcher, sent } = fakeFetch([ok("好"), ok("好")]);
   await openrouterProvider({ ...config, model: "google/gemini-4-argon" }, fetcher).step({ system: "ALL", systemParts: parts, history: [user], tools });
-  assert.deepEqual(sent[0].body.messages[0], { role: "system", content: "ALL" });
-  assert.deepEqual(sent[0].body.messages[1], { role: "user", content: "我推门" });
+  assert.deepEqual(sent[0].body.messages[0], {
+    role: "system",
+    content: [{ type: "text", text: parts.stable, cache_control: { type: "ephemeral" } }, { type: "text", text: parts.dynamic }],
+  });
+  assert.deepEqual(sent[0].body.messages[1], { role: "user", content: "我推门" }, "Gemini uses only the last breakpoint, so none on messages");
+  await openrouterProvider({ ...config, model: "openai/gpt-6.1-sol" }, fetcher).step({ system: "ALL", systemParts: parts, history: [user], tools });
+  assert.deepEqual(sent[1].body.messages[0], { role: "system", content: "ALL" });
 });
 
 test("openrouter: reasoning_details and tool calls are replayed unmodified; tool results use role tool", async () => {
@@ -165,4 +173,19 @@ test("anthropic direct: system parts become cached blocks; usage counts cache re
   assert.equal(sent[0].body.system[0].cache_control.type, "ephemeral");
   assert.equal(sent[0].body.system[1].text, parts.dynamic);
   assert.deepEqual(r.usage, { input: 1000, output: 10, cached: 900 });
+});
+
+test("openrouter: one retry on a gateway error; client errors are not retried", async () => {
+  const { fetcher, sent } = fakeFetch([new Response("bad gateway", { status: 504 }), ok("好")]);
+  const r = await openrouterProvider(config, fetcher).step({ system: "S", history: [user], tools });
+  assert.equal(r.text, "好");
+  assert.equal(sent.length, 2);
+
+  const twice = fakeFetch([new Response("x", { status: 503 }), new Response("x", { status: 503 })]);
+  await assert.rejects(openrouterProvider(config, twice.fetcher).step({ system: "S", history: [user], tools }), /HTTP 503/);
+  assert.equal(twice.sent.length, 2, "gives up after one retry");
+
+  const client = fakeFetch([new Response("x", { status: 400 })]);
+  await assert.rejects(openrouterProvider(config, client.fetcher).step({ system: "S", history: [user], tools }), /HTTP 400/);
+  assert.equal(client.sent.length, 1);
 });

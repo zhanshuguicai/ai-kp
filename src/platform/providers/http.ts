@@ -2,6 +2,14 @@ import { PlatformError } from "../errors.js";
 
 export type Fetcher = typeof fetch;
 
+const RETRY_STATUS = new Set([500, 502, 503, 504]);
+export let RETRY_DELAY_MS = 1500;
+/** Tests shorten the retry delay. */
+export function setRetryDelay(ms: number) {
+  RETRY_DELAY_MS = ms;
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** POST JSON with a timeout. Upstream error bodies are not passed through to users (they may echo keys). */
 export async function postJson(
   fetcher: Fetcher,
@@ -12,15 +20,31 @@ export async function postJson(
   timeoutMs: number,
 ): Promise<any> {
   let response: Response;
-  try {
-    response = await fetcher(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...headers },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    throw new PlatformError("PROVIDER_NETWORK", `${provider} 请求超时或网络失败`, 502);
+  // One retry for brief upstream failures (gateway errors, dropped connections). Model calls have no
+  // side effects, so repeating one is safe. Timeouts are not retried: the player has waited long enough.
+  for (let attempt = 0; ; attempt++) {
+    const started = Date.now();
+    try {
+      response = await fetcher(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      const timedOut = (e as Error)?.name === "TimeoutError" || Date.now() - started >= timeoutMs;
+      if (attempt === 0 && !timedOut) {
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      throw new PlatformError("PROVIDER_NETWORK", `${provider} 请求超时或网络失败`, 502);
+    }
+    if (attempt === 0 && RETRY_STATUS.has(response.status)) {
+      await response.body?.cancel().catch(() => {});
+      await sleep(RETRY_DELAY_MS);
+      continue;
+    }
+    break;
   }
   if (!response.ok) {
     const hint =

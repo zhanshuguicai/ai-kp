@@ -124,15 +124,38 @@ export function normalizeBlurb(v: any): ScenarioBlurb {
   };
 }
 
-/** True when `a` and `b` share a run of at least `n` identical characters (ignoring whitespace). */
-export function sharesSpan(a: string, b: string, n = 10): boolean {
+const spansOf = (s: string, n: number) => {
+  const y = s.replace(/\s+/g, "");
+  const out = new Set<string>();
+  for (let i = 0; i + n <= y.length; i++) out.add(y.slice(i, i + n));
+  return out;
+};
+
+/**
+ * True when `a` and `b` share a run of at least `n` identical characters (ignoring whitespace).
+ * Runs that also appear in `publicText` do not count: names and background the players are told anyway.
+ */
+export function sharesSpan(a: string, b: string, n = 10, publicText = ""): boolean {
   const x = a.replace(/\s+/g, "");
-  const y = b.replace(/\s+/g, "");
-  if (x.length < n || y.length < n) return false;
-  const spans = new Set<string>();
-  for (let i = 0; i + n <= y.length; i++) spans.add(y.slice(i, i + n));
-  for (let i = 0; i + n <= x.length; i++) if (spans.has(x.slice(i, i + n))) return true;
+  if (x.length < n || b.replace(/\s+/g, "").length < n) return false;
+  const spans = spansOf(b, n);
+  const known = publicText ? spansOf(publicText, n) : new Set<string>();
+  for (let i = 0; i + n <= x.length; i++) {
+    const s = x.slice(i, i + n);
+    if (spans.has(s) && !known.has(s)) return true;
+  }
   return false;
+}
+
+/** What the players are told anyway: the opening, NPC names and their public faces, scene names. */
+export function publicMaterial(c: CompiledScenario): string {
+  return [c.opening, ...c.npcs.map((x) => `${x.name}\n${x.publicFace}`), ...c.scenes.map((x) => x.name)].join("\n");
+}
+
+/** True when `text` quotes compiled secret material verbatim (beyond what is public anyway). */
+export function quotesSecret(text: string, c: CompiledScenario): boolean {
+  const known = publicMaterial(c);
+  return secretsOf(c).some((s) => sharesSpan(text, s, 10, known));
 }
 
 /** Secret material the blurb must not quote. */
@@ -148,10 +171,9 @@ function secretsOf(c: CompiledScenario): string[] {
 
 /** Blurb fields that quote secret material verbatim. */
 export function blurbLeaks(blurb: ScenarioBlurb, compiled: CompiledScenario): (keyof ScenarioBlurb)[] {
-  const secrets = secretsOf(compiled);
   const fields: (keyof ScenarioBlurb)[] = ["pitch", "setting", "tone"];
-  const leaky = fields.filter((f) => secrets.some((s) => sharesSpan(blurb[f] as string, s)));
-  if (blurb.contentWarnings.some((w) => secrets.some((s) => sharesSpan(w, s)))) leaky.push("contentWarnings");
+  const leaky = fields.filter((f) => quotesSecret(blurb[f] as string, compiled));
+  if (blurb.contentWarnings.some((w) => quotesSecret(w, compiled))) leaky.push("contentWarnings");
   return leaky;
 }
 

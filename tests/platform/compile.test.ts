@@ -10,6 +10,7 @@ import {
   partition,
   renderGuide,
   sharesSpan,
+  quotesSecret,
 } from "../../src/platform/scenario/compiler.js";
 import { chunkScenario } from "../../src/platform/scenario/chunker.js";
 import { Platform } from "../../src/platform/engine.js";
@@ -114,6 +115,21 @@ test("normalize: caps sizes, fixes duplicate clue ids, rejects empty output", ()
   assert.equal(c.npcs.length, 1);
   assert.equal(c.npcs[0].secret.length, 600);
   assert.throws(() => normalizeCompiled({}), /没有从剧本中抽取到任何内容/);
+});
+
+test("the leak check ignores names and background the players are told anyway", () => {
+  const c = {
+    brief: "委托人陈三（Chen San）其实早已知道灯塔下的尸体是谁",
+    npcs: [{ name: "陈三（Chen San）", publicFace: "药铺掌柜", secret: "", motive: "" }],
+    clues: [],
+    scenes: [],
+    clocks: [],
+    endings: [],
+    opening: "1926年秋天的望潮镇，陈三（Chen San）请你们去灯塔看看",
+  } as any;
+  assert(!quotesSecret("药铺掌柜陈三（Chen San）搓着手说话", c), "a name from the opening is not a leak");
+  assert(!quotesSecret("1926年秋天的望潮镇，海风很大", c));
+  assert(quotesSecret("其实早已知道灯塔下的尸体是谁", c), "the secret part still counts");
 });
 
 test("sharesSpan and blurbLeaks detect verbatim quotes only", () => {
