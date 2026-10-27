@@ -58,6 +58,8 @@ export interface CampaignSettings {
   director: { clueDrought: number; sceneLength: number; quietTurns: number; failStreak: number };
   /** Per-campaign model choice; null = provider default. Aux handles summaries and other cheap work. */
   models: { main: string | null; auxProvider: string | null; auxModel: string | null };
+  /** Summarize older play once the not-yet-summarized log passes `threshold` tokens; null = 75% of budgets.recent. */
+  compression: { threshold: number | null };
 }
 export interface Campaign {
   id: string;
@@ -107,6 +109,7 @@ export const DEFAULT_SETTINGS: CampaignSettings = {
   budgets: { scenario: 6000, state: 1500, summaries: 4000, recent: 8000 },
   director: { clueDrought: 4, sceneLength: 8, quietTurns: 4, failStreak: 3 },
   models: { main: null, auxProvider: null, auxModel: null },
+  compression: { threshold: null },
 };
 
 /** Fill settings saved by older versions with current defaults. */
@@ -115,6 +118,7 @@ export function normalizeSettings(raw: any): CampaignSettings {
     budgets: { ...DEFAULT_SETTINGS.budgets, ...(raw?.budgets ?? {}) },
     director: { ...DEFAULT_SETTINGS.director, ...(raw?.director ?? {}) },
     models: { ...DEFAULT_SETTINGS.models, ...(raw?.models ?? {}) },
+    compression: { ...DEFAULT_SETTINGS.compression, ...(raw?.compression ?? {}) },
   };
 }
 
@@ -555,6 +559,13 @@ export class Store {
     return summary;
   }
   /** Highest event seq already covered by a summary (0 if none). */
+  /** Turn number an event belongs to (null for events outside a turn). */
+  turnOfSeq(campaignId: string, seq: number): number | null {
+    const r = this.db
+      .prepare("SELECT t.n AS n FROM events e JOIN turns t ON t.id = e.turn_id WHERE e.campaign_id = ? AND e.seq = ?")
+      .get(campaignId, seq);
+    return r ? Number(r.n) : null;
+  }
   summarizedThrough(campaignId: string): number {
     const r = this.db
       .prepare("SELECT max(to_seq) AS s FROM summaries WHERE campaign_id = ? AND superseded = 0")

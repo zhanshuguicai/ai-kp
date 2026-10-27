@@ -42,6 +42,18 @@ function byTurn(events: GameEvent[]): GameEvent[][] {
   return groups;
 }
 
+/** Token count of the not-yet-summarized log at which level-1 compression starts. */
+export function compressThreshold(campaign: Campaign): number {
+  return campaign.settings.compression.threshold ?? Math.floor(campaign.settings.budgets.recent * 0.75);
+}
+
+/** Size of the play log not covered by summaries yet, as the compressor measures it. */
+export function pendingTokens(store: Store, campaign: Campaign): number {
+  const names = new Map(store.characters(campaign.id).map((c) => [c.playerId, c.name]));
+  const pending = store.events(campaign.id, { afterSeq: store.summarizedThrough(campaign.id) }).filter((e) => e.type !== "directive");
+  return estimateTokens(formatEvents(pending, names).join("\n"));
+}
+
 export interface CompressResult {
   level1?: Summary;
   level2?: Summary;
@@ -63,7 +75,7 @@ export async function compress(
   const pending = store.events(campaign.id, { afterSeq: through }).filter((e) => e.type !== "directive");
   const pendingTokens = estimateTokens(formatEvents(pending, names).join("\n"));
   const groups = byTurn(pending);
-  if ((opts.force || pendingTokens > campaign.settings.budgets.recent * 0.75) && groups.length >= 2) {
+  if ((opts.force || pendingTokens > compressThreshold(campaign)) && groups.length >= 2) {
     // Summarize the oldest turns making up about half the pending text; always keep the newest turn verbatim.
     const take: GameEvent[] = [];
     let used = 0;

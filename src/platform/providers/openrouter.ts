@@ -30,6 +30,17 @@ function messages(history: HistoryItem[]): unknown[] {
   );
 }
 
+/**
+ * Anthropic only: a third cache breakpoint on the newest message, so each tool step of a turn reads
+ * the previous steps from cache instead of paying for the whole history again (2 system + 1 here, max 4).
+ */
+function cacheNewest(msgs: any[], model: string): any[] {
+  if (!model.startsWith("anthropic/") || !msgs.length) return msgs;
+  const last = msgs[msgs.length - 1];
+  if ((last.role !== "tool" && last.role !== "user") || typeof last.content !== "string" || !last.content) return msgs;
+  return [...msgs.slice(0, -1), { ...last, content: [{ type: "text", text: last.content, cache_control: CACHE }] }];
+}
+
 const STOP: Record<string, StopReason> = {
   tool_calls: "tool_use",
   stop: "end",
@@ -101,7 +112,7 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
     async step(req) {
       return read(
         await call({
-          messages: [systemMessage(req, config.model), ...messages(req.history)],
+          messages: [systemMessage(req, config.model), ...cacheNewest(messages(req.history), config.model)],
           tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
           ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
         }),

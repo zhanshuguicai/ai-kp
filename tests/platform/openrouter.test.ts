@@ -53,7 +53,8 @@ test("openrouter: chat completions shape, cached system blocks for Claude, reaso
       { type: "text", text: parts.dynamic, cache_control: { type: "ephemeral" } },
     ],
   });
-  assert.deepEqual(body.messages[1], { role: "user", content: "我推门" });
+  // The newest message carries the third breakpoint, so later tool steps read the history from cache.
+  assert.deepEqual(body.messages[1], { role: "user", content: [{ type: "text", text: "我推门", cache_control: { type: "ephemeral" } }] });
   assert.deepEqual(body.tools[0], { type: "function", function: { name: "reply", description: "d", parameters: tools[0].parameters } });
 });
 
@@ -61,6 +62,7 @@ test("openrouter: non-Claude models get a plain system string (implicit caching)
   const { fetcher, sent } = fakeFetch([ok("好")]);
   await openrouterProvider({ ...config, model: "google/gemini-4-argon" }, fetcher).step({ system: "ALL", systemParts: parts, history: [user], tools });
   assert.deepEqual(sent[0].body.messages[0], { role: "system", content: "ALL" });
+  assert.deepEqual(sent[0].body.messages[1], { role: "user", content: "我推门" });
 });
 
 test("openrouter: reasoning_details and tool calls are replayed unmodified; tool results use role tool", async () => {
@@ -97,7 +99,12 @@ test("openrouter: reasoning_details and tool calls are replayed unmodified; tool
   const msgs = sent[1].body.messages;
   assert.deepEqual(msgs[2], { role: "assistant", content: null, tool_calls: toolCalls, reasoning_details: reasoning });
   assert.deepEqual(msgs[3], { role: "tool", tool_call_id: "tc1", content: '{"ok":true}' });
-  assert.deepEqual(msgs[4], { role: "tool", tool_call_id: "tc2", content: '{"error":{"code":"X","message":"坏"}}' });
+  // Only the newest message gets a breakpoint (2 system + 1 here stays within Anthropic's limit of 4).
+  assert.deepEqual(msgs[4], {
+    role: "tool",
+    tool_call_id: "tc2",
+    content: [{ type: "text", text: '{"error":{"code":"X","message":"坏"}}', cache_control: { type: "ephemeral" } }],
+  });
 });
 
 test("openrouter: plain-text reasoning is replayed when there are no reasoning_details", async () => {

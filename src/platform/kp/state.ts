@@ -10,7 +10,8 @@ export interface WorldState {
   clues: { id: string; text: string; foundBy: string[]; turn: number; ref?: string }[];
   npcs: Record<string, { status: string; attitude: string; lastSeenTurn: number }>;
   /** Threat clocks; KP only. */
-  clocks: Record<string, { filled: number; size: number; note: string }>;
+  /** Threat clocks; KP only. `warned` = the fill level the director last warned about. */
+  clocks: Record<string, { filled: number; size: number; note: string; warned?: number }>;
   /** 0 calm … 5 climax, maintained by the KP. */
   tension: number;
   lastClueTurn: number;

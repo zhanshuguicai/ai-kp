@@ -164,6 +164,7 @@ function render() {
   renderLog(pub.events);
   renderPlayers();
   renderModels();
+  renderCompression();
   renderDiagnostics();
   renderReveal();
 }
@@ -228,6 +229,17 @@ function renderModels() {
   $("usage").textContent = u.turns
     ? `${u.turns} 轮 · 输入 ${k(u.input)}（缓存 ${u.input ? Math.round((u.cached / u.input) * 100) : 0}%）· 输出 ${k(u.output)}${u.cost !== null ? ` · $${u.cost.toFixed(3)}` : ""} · 摘要 ${view.memory.summaries} 段`
     : "尚无用量";
+}
+
+function renderCompression() {
+  const c = view.compression;
+  const pct = Math.min(100, Math.round((c.pendingTokens / c.threshold) * 100));
+  $("compression").replaceChildren(
+    el("div", "", `未压缩记录 ${c.pendingTokens} / ${c.threshold} token（${pct}%）${c.custom ? "" : " · 默认阈值"}${c.running ? " · 正在压缩…" : ""}`),
+    el("div", "", `已有片段摘要 ${c.summaries} 段、章节摘要 ${c.chapters} 段${c.summarizedThroughTurn ? ` · 已压缩到第 ${c.summarizedThroughTurn} 轮` : " · 尚未压缩"}`),
+    ...(c.lastError ? [el("div", "cmp-error", `上次压缩失败：${c.lastError}`)] : []),
+  );
+  if (document.activeElement?.id !== "cmp-threshold") $("cmp-threshold").value = c.custom ? c.threshold : "";
 }
 
 const DIRECTIVE = { hint: "给线索", escalate: "加压", breathe: "喘息", spotlight: "聚光", wrap_up: "收束" };
@@ -356,6 +368,17 @@ $("provider-form").addEventListener("submit", (e) => {
     $("pv-key").value = "";
     notice("模型设置已保存", true);
     await loadAll();
+  });
+});
+
+$("compression-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!campaignId) return;
+  const raw = $("cmp-threshold").value.trim();
+  run(async () => {
+    await api("PUT", `/campaigns/${campaignId}/compression`, { threshold: raw ? Number(raw) : null });
+    notice(raw ? `压缩阈值已设为 ${raw} token` : "已恢复默认压缩阈值", true);
+    await loadCampaign();
   });
 });
 

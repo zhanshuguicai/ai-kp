@@ -137,3 +137,4 @@ button.danger:hover { background: #4a2a2a; }
 .list.scenarios li button { justify-self: start; width: auto; margin-top: 4px; }
 .blurb { display: grid; gap: 3px; }
 .bad { color: var(--bad); }
+.cmp-error { color: var(--bad); }

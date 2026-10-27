@@ -25,7 +25,7 @@ import { buildKpTools, checkRecords, PUSH_WINDOW, type CheckRecord, type TurnScr
 import { runAgent } from "./kp/agent.js";
 import { direct, type Directive } from "./director/director.js";
 import { assembleContext } from "./context/assembler.js";
-import { compress } from "./context/compressor.js";
+import { compress, compressThreshold, pendingTokens } from "./context/compressor.js";
 import { compileScenario, demoCompile, renderGuide, type CompiledScenario, type ScenarioBlurb } from "./scenario/compiler.js";
 
 export const MESSAGE_KINDS = ["dialogue", "action", "ooc", "auto"] as const;
@@ -74,6 +74,7 @@ const obj = (v: unknown) => {
 export class Platform {
   private queues = new Map<string, Promise<unknown>>();
   private compressing = new Map<string, Promise<void>>();
+  private compressErrors = new Map<string, string>();
   private compiling = new Map<string, Promise<void>>();
   private indexes = new Map<string, ScenarioIndex>();
   readonly env: NodeJS.ProcessEnv;
@@ -241,6 +242,7 @@ export class Platform {
     ensure(Array.isArray(b.players) && b.players.length >= 1 && b.players.length <= 12, "INVALID_INPUT", "需要 1-12 名玩家");
     const settings: CampaignSettings = normalizeSettings(b.settings);
     if (b.models !== undefined) settings.models = this.parseModels(b.models, settings.models);
+    settings.compression = this.parseCompression(obj(b.settings ?? {}).compression ?? {}, settings, { threshold: null });
     const players = (b.players as unknown[]).map((p) => {
       const o = obj(p);
       return {
@@ -276,6 +278,39 @@ export class Platform {
       next.auxProvider = b.auxProvider || null;
     }
     return next;
+  }
+  private parseCompression(body: unknown, settings: CampaignSettings, current: CampaignSettings["compression"]): CampaignSettings["compression"] {
+    const b = obj(body);
+    if (b.threshold === undefined) return current;
+    const max = settings.budgets.recent;
+    ensure(
+      b.threshold === null || (Number.isInteger(b.threshold) && (b.threshold as number) >= 500 && (b.threshold as number) <= max),
+      "INVALID_INPUT",
+      `压缩阈值需为 500-${max} 的整数（不能超过"最近经过"预算，否则旧记录会先被截掉），或 null 用默认`,
+    );
+    return { threshold: (b.threshold as number | null) ?? null };
+  }
+  setCompression(campaignId: string, body: unknown) {
+    const c = this.store.getCampaign(campaignId);
+    const settings = { ...c.settings, compression: this.parseCompression(body, c.settings, c.settings.compression) };
+    this.store.updateSettings(campaignId, settings);
+    return this.compressionStatus({ ...c, settings });
+  }
+  /** Spoiler-free compression status: sizes and turn numbers only, never summary text. */
+  compressionStatus(campaign: Campaign) {
+    const summaries = this.store.activeSummaries(campaign.id);
+    const through = this.store.summarizedThrough(campaign.id);
+    const lastTurn = through ? this.store.turnOfSeq(campaign.id, through) : null;
+    return {
+      threshold: compressThreshold(campaign),
+      custom: campaign.settings.compression.threshold !== null,
+      pendingTokens: pendingTokens(this.store, campaign),
+      summaries: summaries.filter((s) => s.level === 1).length,
+      chapters: summaries.filter((s) => s.level === 2).length,
+      summarizedThroughTurn: lastTurn,
+      running: this.compressing.has(campaign.id),
+      lastError: this.compressErrors.get(campaign.id) ?? null,
+    };
   }
   setModels(campaignId: string, body: unknown) {
     const c = this.store.getCampaign(campaignId);
@@ -367,6 +402,7 @@ export class Platform {
         usage: data?.trace?.usage ?? null,
       })),
       memory: { summaries: summaries.length, chapters: summaries.filter((s) => s.level === 2).length },
+      compression: this.compressionStatus(campaign),
       public: this.publicView(campaignId),
     };
   }
@@ -538,6 +574,10 @@ export class Platform {
       const index = this.index(campaign.scenarioId);
       const compiled = this.compiled(campaign.scenarioId);
       directives = this.directives(campaign, turn, state, compiled);
+      // Remember which clock levels were warned about (committed with the turn).
+      for (const d of directives)
+        if (d.kind === "escalate" && d.target && scratch.state.clocks[d.target])
+          scratch.state.clocks[d.target].warned = scratch.state.clocks[d.target].filled;
       const recent = this.store.events(campaignId, { afterSeq: this.store.summarizedThrough(campaignId) });
       const ctx = assembleContext({
         system,
@@ -656,7 +696,10 @@ export class Platform {
           const r = await compress(this.store, current, this.modelFor(current, "aux"));
           if (!r.level1 && !r.level2) break;
         }
+        this.compressErrors.delete(campaign.id);
       } catch (e) {
+        // Only our own messages are kept; a provider's raw output could contain plot.
+        this.compressErrors.set(campaign.id, e instanceof PlatformError ? e.message : "摘要时发生内部错误");
         // Compression is best effort: context assembly clips recent events, and the next turn retries.
         console.error(`[compress ${campaign.id}]`, e instanceof Error ? e.message : e);
       } finally {

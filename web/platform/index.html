@@ -115,6 +115,14 @@
         <div id="usage" class="muted"></div>
       </section>
       <section>
+        <h3>上下文压缩 <span class="muted small">（只显示进度，不显示摘要内容）</span></h3>
+        <div id="compression" class="muted">—</div>
+        <form id="compression-form" class="row">
+          <input id="cmp-threshold" type="number" min="500" step="100" placeholder="触发阈值（token，留空用默认）">
+          <button type="submit">保存</button>
+        </form>
+      </section>
+      <section>
         <h3>运行诊断 <span class="muted small">（不含剧情）</span></h3>
         <ol id="diagnostics" class="diag"></ol>
       </section>

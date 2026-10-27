@@ -345,7 +345,7 @@ export function buildKpTools(opts: {
         const size = typeof args.size === "number" ? args.size : existing?.size;
         if (!size || !Number.isInteger(size) || size < 2 || size > 12) bad("新时钟需要 size（2-12）");
         const filled = Math.min(size!, Math.max(0, (existing?.filled ?? 0) + (args.delta as number)));
-        scratch.state.clocks[name] = { filled, size: size!, note: nullableText(args.note, "note", 300) ?? existing?.note ?? "" };
+        scratch.state.clocks[name] = { filled, size: size!, note: nullableText(args.note, "note", 300) ?? existing?.note ?? "", ...(existing?.warned !== undefined ? { warned: existing.warned } : {}) };
         event(scratch, { type: "state", actor: null, visibility: "kp", text: `时钟 ${name} ${filled}/${size}`, data: { clock: name } });
         return { filled, size, full: filled >= size! };
       },

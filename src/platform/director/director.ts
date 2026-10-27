@@ -61,11 +61,14 @@ export function direct(input: DirectorInput): Directive[] {
       reason: `连续 ${streak} 次检定失败：失败要推动局势，同时给出一个可行的突破口，避免挫败感`,
     });
 
+  // Clocks: warn once per fill level, so the KP is not pushed every turn while a clock sits still.
+  // "Close" means the last quarter (at least one segment), and only for clocks of 4+ segments.
   for (const [name, c] of Object.entries(state.clocks)) {
+    if (c.warned === c.filled) continue;
     if (c.filled >= c.size)
       out.push({ kind: "escalate", strength: 3, target: name, reason: `威胁时钟「${name}」已满：本轮兑现它${c.note ? `（${c.note}）` : ""}` });
-    else if (c.filled >= c.size - 1)
-      out.push({ kind: "escalate", strength: 2, target: name, reason: `威胁时钟「${name}」只差一格：让玩家感受到逼近的压力` });
+    else if (c.size >= 4 && c.size - c.filled <= Math.max(1, Math.floor(c.size / 4)))
+      out.push({ kind: "escalate", strength: 2, target: name, reason: `威胁时钟「${name}」${c.filled}/${c.size}，快满了：让玩家感受到逼近的压力` });
   }
 
   if (sceneTurns >= settings.sceneLength)
