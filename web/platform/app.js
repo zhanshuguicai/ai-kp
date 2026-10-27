@@ -20,6 +20,7 @@ let busy = false;
 let poll = null;
 let scenarios = [];
 let providers = [];
+let roles = { compile: { provider: null, model: null }, main: { provider: null, model: null }, aux: { provider: null, model: null } };
 
 // ---------------- providers & model lists ----------------
 const PROVIDER_LABEL = { openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic", deepseek: "DeepSeek", gemini: "Google Gemini", demo: "离线演示" };
@@ -112,18 +113,21 @@ function setBusy(b) {
 
 // ---------------- loading ----------------
 async function loadAll() {
-  const [sys, prov, sc, cp] = await Promise.all([
-    api("GET", "/systems"), api("GET", "/providers"), api("GET", "/scenarios"), api("GET", "/campaigns"),
+  const [sys, prov, sc, cp, rl] = await Promise.all([
+    api("GET", "/systems"), api("GET", "/providers"), api("GET", "/scenarios"), api("GET", "/campaigns"), api("GET", "/roles"),
   ]);
   $("cp-system").replaceChildren(...sys.systems.map((s) => option(s.id, s.name)));
   providers = prov.providers;
+  roles = rl.roles;
   const firstConfigured = providers.find((p) => p.configured && p.id !== "demo")?.id || "demo";
   const all = () => providers.map((p) => option(p.id, providerName(p)));
-  fillSelect("cp-provider", all(), firstConfigured);
+  for (const role of ["compile", "main", "aux"]) fillSelect(`role-${role}-provider`, [option("", "未设置"), ...all()]);
+  if (!$("roles-form").dataset.touched) renderRoles();
+  fillSelect("cp-provider", all(), roles.main.provider || firstConfigured);
   fillSelect("md-provider", all());
   fillSelect("pv-id", providers.filter((p) => p.id !== "demo").map((p) => option(p.id, providerName(p))), "openrouter");
   $("providers").replaceChildren(...providers.map((p) => el("li", "", `${PROVIDER_LABEL[p.id] || p.id}：${p.model}${p.apiMode ? ` · ${p.apiMode === "chat" ? "Chat 兼容" : "Responses"}` : ""}${p.reasoningEffort ? ` · 推理 ${p.reasoningEffort}` : ""} · ${p.configured ? "已配置" : "未配置"}`)));
-  const auxOptions = () => [option("", "同主力接口"), ...all()];
+  const auxOptions = () => [option("", "按默认分工"), ...all()];
   fillSelect("cp-aux-provider", auxOptions());
   fillSelect("md-aux-provider", auxOptions());
   // Background refreshes must not wipe what the organizer is typing.
@@ -132,7 +136,8 @@ async function loadAll() {
   const keep = $("cp-scenario").value;
   $("cp-scenario").replaceChildren(...scenarios.map((s) => option(s.id, `${s.title}${s.compileStatus === "done" ? "" : `（${STATUS[s.compileStatus]}）`}`)));
   if (keep && scenarios.some((s) => s.id === keep)) $("cp-scenario").value = keep;
-  fillSelect("sc-provider", all(), firstConfigured);
+  fillSelect("sc-provider", all(), roles.compile.provider || firstConfigured);
+  roleHints();
   renderScenarios();
   renderBlurb();
   renderCampaigns(cp.campaigns);
@@ -560,3 +565,47 @@ const syncers = [
 ];
 for (const id of ["sc-provider", "cp-provider", "cp-aux-provider", "md-provider", "md-aux-provider"])
   $(id).addEventListener("change", () => syncers.forEach((f) => f()));
+
+// ---------------- model roles (defaults for compile / KP / summaries) ----------------
+const ROLES = ["compile", "main", "aux"];
+function renderRoles() {
+  for (const role of ROLES) {
+    $(`role-${role}-provider`).value = roles[role].provider || "";
+    $(`role-${role}-model`).value = roles[role].model || "";
+  }
+  delete $("roles-form").dataset.touched;
+}
+/** Placeholders say what an empty model field will use. */
+function roleHints() {
+  const hint = (inputId, role, provider) => {
+    const r = roles[role];
+    const p = provider || r.provider;
+    $(inputId).placeholder = r.model && p === r.provider ? `留空用分工默认：${r.model}` : "留空用接口默认";
+  };
+  hint("sc-model", "compile", $("sc-provider").value);
+  hint("cp-main", "main", $("cp-provider").value);
+  hint("cp-aux", "aux", $("cp-aux-provider").value || roles.aux.provider || $("cp-provider").value);
+}
+$("roles-form").addEventListener("input", () => { $("roles-form").dataset.touched = "1"; });
+$("roles-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const body = {};
+  for (const role of ROLES) body[role] = { provider: $(`role-${role}-provider`).value || null, model: $(`role-${role}-model`).value.trim() || null };
+  run(async () => {
+    roles = (await api("PUT", "/roles", body)).roles;
+    renderRoles();
+    roleHints();
+    await loadAll();
+    // Point the import and new-campaign forms at the new defaults.
+    if (roles.compile.provider) $("sc-provider").value = roles.compile.provider;
+    if (roles.main.provider) $("cp-provider").value = roles.main.provider;
+    $("cp-aux-provider").value = "";
+    roleHints();
+    notice("模型分工已保存，导入剧本和开新团会默认使用这里的设置", true);
+  });
+});
+for (const role of ROLES) {
+  const sync = bindModelInput(`role-${role}-model`, () => $(`role-${role}-provider`).value);
+  $(`role-${role}-provider`).addEventListener("change", sync);
+}
+for (const id of ["sc-provider", "cp-provider", "cp-aux-provider"]) $(id).addEventListener("change", roleHints);

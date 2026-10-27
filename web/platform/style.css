@@ -140,3 +140,5 @@ button.danger:hover { background: #4a2a2a; }
 .cmp-error { color: var(--bad); }
 .stack label.check { display: flex; gap: 6px; align-items: center; }
 .stack .row input { flex: 1; min-width: 0; }
+fieldset.role { border: 1px solid var(--line, #2a3240); border-radius: 6px; padding: 8px; margin: 0; display: grid; gap: 6px; }
+fieldset.role legend { padding: 0 4px; font-size: 13px; }

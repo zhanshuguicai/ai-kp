@@ -176,3 +176,48 @@ test("DeepSeek: default aux model, model list, and a campaign can use it", async
     aux: { provider: "deepseek", model: "deepseek-flash" },
   });
 });
+
+// ---------------- model roles ----------------
+
+test("role defaults: validated, and used by campaigns that did not choose for themselves", () => {
+  const { platform, store, campaign } = setup({ provider: scripted([]), campaignProvider: "openrouter" });
+  assert.deepEqual(platform.roleDefaults().main, { provider: null, model: null });
+  assert.throws(() => platform.setRoleDefaults({ main: { provider: "skynet" } }), /KP 主持的接口/);
+  assert.throws(() => platform.setRoleDefaults({ aux: { model: "x" } }), /先选接口/);
+  assert.throws(() => platform.setRoleDefaults({ compile: { provider: "openrouter", model: "has space" } }), /模型/);
+
+  platform.setRoleDefaults({
+    main: { provider: "openrouter", model: "google/gemini-3.8-flash" },
+    aux: { provider: "deepseek", model: "deepseek-flash" },
+  });
+  // The campaign left main/aux empty, so it follows the roles.
+  assert.deepEqual(platform.models(store.getCampaign(campaign.id)), {
+    main: { provider: "openrouter", model: "google/gemini-3.8-flash" },
+    aux: { provider: "deepseek", model: "deepseek-flash" },
+  });
+  // Its own choice wins.
+  platform.setModels(campaign.id, { main: "anthropic/claude-opus-5.5", auxProvider: "openrouter", auxModel: "anthropic/claude-haiku-5.5" });
+  assert.deepEqual(platform.models(store.getCampaign(campaign.id)), {
+    main: { provider: "openrouter", model: "anthropic/claude-opus-5.5" },
+    aux: { provider: "openrouter", model: "anthropic/claude-haiku-5.5" },
+  });
+  // A role's model only applies to its own provider.
+  platform.setModels(campaign.id, { provider: "anthropic" });
+  assert.equal(platform.models(store.getCampaign(campaign.id)).main.model, "claude-opus-5-5");
+});
+
+test("role defaults fill in the provider when importing a scenario or opening a campaign", async () => {
+  const compiler = scripted([]);
+  const { platform, store, scenarioId } = setup({ provider: scripted([]), compiler });
+  assert.throws(() => platform.compileScenario(scenarioId, {}), /整理剧本用的接口/);
+  assert.throws(() => platform.createCampaign({ name: "x", systemId: "coc7", scenarioId, players: [{ id: "p", name: "P" }] }), /KP 用的接口/);
+
+  platform.setRoleDefaults({ compile: { provider: "demo" }, main: { provider: "deepseek", model: "deepseek-flash" } });
+  platform.compileScenario(scenarioId, {});
+  await platform.compileIdle(scenarioId);
+  assert.equal(platform.scenarioSummary(scenarioId).compileStatus, "done", "compiled with the role's provider (demo here)");
+
+  const c = platform.createCampaign({ name: "x", systemId: "coc7", scenarioId, players: [{ id: "p", name: "P" }] });
+  assert.equal(c.provider, "deepseek");
+  assert.equal(platform.models(store.getCampaign(c.id)).main.model, "deepseek-flash");
+});

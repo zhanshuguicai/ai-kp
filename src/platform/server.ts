@@ -125,6 +125,10 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
           return send(200, { systems: platform.systems() });
         case "GET providers":
           return send(200, { providers: platform.providers() });
+        case "GET roles":
+          return send(200, { roles: platform.roleDefaults() });
+        case "PUT roles":
+          return send(200, { roles: platform.setRoleDefaults(await readBody(req)) });
         case "GET providers/:id/models":
           return send(200, { models: await platform.listModels(id) });
         case "POST providers/:id":

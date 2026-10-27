@@ -86,6 +86,29 @@
         </form>
         <ul id="providers" class="list small"></ul>
       </details>
+
+      <details id="role-settings">
+        <summary>模型分工</summary>
+        <form id="roles-form" class="stack">
+          <p class="muted small">三种工作可以用不同的接口和模型。这里是默认值：导入剧本、开团时不单独选，就用这里的设置；已开的团没单独改过的，也跟着这里变。接口的 key 在上面"API 与模型设置"里填。</p>
+          <fieldset class="role">
+            <legend>剧本整理 <span class="muted small">（导入时读一遍剧本，只做一次，建议用最强的模型）</span></legend>
+            <select id="role-compile-provider"></select>
+            <input id="role-compile-model" placeholder="模型（留空用接口默认）" autocomplete="off">
+          </fieldset>
+          <fieldset class="role">
+            <legend>KP 主持 <span class="muted small">（每一轮都要用，决定主持质量和主要花费）</span></legend>
+            <select id="role-main-provider"></select>
+            <input id="role-main-model" placeholder="模型（留空用接口默认）" autocomplete="off">
+          </fieldset>
+          <fieldset class="role">
+            <legend>数据摘要 <span class="muted small">（压缩早期记录，用便宜的模型就够）</span></legend>
+            <select id="role-aux-provider"></select>
+            <input id="role-aux-model" placeholder="模型（留空用接口默认）" autocomplete="off">
+          </fieldset>
+          <button type="submit">保存分工</button>
+        </form>
+      </details>
     </aside>
 
     <section class="col center">

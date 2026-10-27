@@ -47,6 +47,10 @@ export interface PlatformOptions {
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 export type ModelRole = "main" | "aux" | "compile";
+export const ROLE_NAMES = ["compile", "main", "aux"] as const;
+export type RoleName = (typeof ROLE_NAMES)[number];
+export type RoleDefaults = Record<RoleName, { provider: string | null; model: string | null }>;
+const ROLE_LABEL: Record<RoleName, string> = { compile: "剧本整理", main: "KP 主持", aux: "数据摘要" };
 /** Reading a whole scenario can take minutes. */
 const COMPILE_TIMEOUT_MS = 600_000;
 export interface ResolvedModels {
@@ -100,18 +104,49 @@ export class Platform {
     ensure(isProviderId(id), "INVALID_PROVIDER", `不支持的模型供应商 ${id}`);
     return resolveProviderConfig(id, this.store.getSetting(`provider:${id}`), this.env);
   }
-  /** Which provider and model a campaign uses for its main KP and for auxiliary work. */
+  /**
+   * Which provider and model a campaign uses for its main KP and for auxiliary work.
+   * Order: the campaign's own choice > the settings page's role defaults > built-in defaults.
+   * A role's default model only applies when the provider matches (model names belong to a provider).
+   */
   models(campaign: Campaign): ResolvedModels {
     const m = campaign.settings.models;
+    const roles = this.roleDefaults();
+    const pick = (role: RoleName, provider: string) => (roles[role].provider === provider ? roles[role].model : null);
     const defaultModel = (provider: string) => (provider === "demo" ? "offline-demo" : this.providerConfig(provider).model);
-    const auxProvider = m.auxProvider ?? campaign.provider;
+    const auxProvider = m.auxProvider ?? roles.aux.provider ?? campaign.provider;
     return {
-      main: { provider: campaign.provider, model: m.main ?? defaultModel(campaign.provider) },
+      main: { provider: campaign.provider, model: m.main ?? pick("main", campaign.provider) ?? defaultModel(campaign.provider) },
       aux: {
         provider: auxProvider,
-        model: m.auxModel ?? (isProviderId(auxProvider) ? AUX_DEFAULTS[auxProvider] : undefined) ?? defaultModel(auxProvider),
+        model: m.auxModel ?? pick("aux", auxProvider) ?? (isProviderId(auxProvider) ? AUX_DEFAULTS[auxProvider] : undefined) ?? defaultModel(auxProvider),
       },
     };
+  }
+
+  // ---------------- role defaults (settings page) ----------------
+  /** Default provider and model for each kind of model call: scenario compile, KP hosting, summaries. */
+  roleDefaults(): RoleDefaults {
+    const stored = this.store.getSetting<Partial<RoleDefaults>>("roles") ?? {};
+    const out = {} as RoleDefaults;
+    for (const role of ROLE_NAMES) out[role] = { provider: stored[role]?.provider ?? null, model: stored[role]?.model ?? null };
+    return out;
+  }
+  setRoleDefaults(body: unknown): RoleDefaults {
+    const b = obj(body);
+    const next = this.roleDefaults();
+    for (const role of ROLE_NAMES) {
+      if (b[role] === undefined) continue;
+      const r = b[role] === null ? {} : obj(b[role]);
+      const provider = r.provider === undefined || r.provider === null || r.provider === "" ? null : r.provider;
+      ensure(provider === null || provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", `${ROLE_LABEL[role]}的接口需为 demo / openrouter / anthropic / openai / deepseek / gemini`);
+      const model = r.model === undefined || r.model === null || r.model === "" ? null : r.model;
+      ensure(model === null || (typeof model === "string" && MODEL_NAME.test(model)), "INVALID_INPUT", `${ROLE_LABEL[role]}的模型需为不含空格的模型名`);
+      ensure(model === null || provider !== null, "INVALID_INPUT", `${ROLE_LABEL[role]}：填了模型就要先选接口`);
+      next[role] = { provider: provider as string | null, model: model as string | null };
+    }
+    this.store.setSetting("roles", next);
+    return next;
   }
   provider(id: string, model?: string, role: ModelRole = "main", overrides: Partial<ProviderConfig> = {}): ModelProvider {
     if (this.opts.providerFactory) return this.opts.providerFactory(id, { role, model: model ?? "" });
@@ -213,9 +248,11 @@ export class Platform {
   compileScenario(id: string, body: unknown) {
     const s = this.store.getScenario(id);
     const b = obj(body);
-    const provider = str(b.provider, "provider", 30);
+    const roles = this.roleDefaults();
+    const provider = b.provider ? str(b.provider, "provider", 30) : roles.compile.provider;
+    ensure(!!provider, "INVALID_PROVIDER", "请选择整理剧本用的接口，或在设置的\"模型分工\"里配置默认");
     ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
-    const model = b.model ? str(b.model, "model", 200) : undefined;
+    const model = b.model ? str(b.model, "model", 200) : provider === roles.compile.provider ? (roles.compile.model ?? undefined) : undefined;
     ensure(!model || MODEL_NAME.test(model), "INVALID_INPUT", "model 需为不含空格的模型名");
     ensure(!this.compiling.has(id), "COMPILE_RUNNING", "这个剧本正在编译中", 409);
     // Fail fast on missing credentials instead of in the background.
@@ -262,7 +299,8 @@ export class Platform {
     const b = obj(body);
     const system = getRuleSystem(str(b.systemId, "systemId", 60));
     this.store.getScenario(str(b.scenarioId, "scenarioId", 60));
-    const provider = str(b.provider, "provider", 30);
+    const provider = b.provider ? str(b.provider, "provider", 30) : (this.roleDefaults().main.provider ?? "");
+    ensure(!!provider, "INVALID_PROVIDER", "请选择 KP 用的接口，或在设置的\"模型分工\"里配置默认");
     ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / deepseek / gemini");
     ensure(Array.isArray(b.players) && b.players.length >= 1 && b.players.length <= 12, "INVALID_INPUT", "需要 1-12 名玩家");
     const settings: CampaignSettings = normalizeSettings(b.settings);
