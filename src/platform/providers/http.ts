@@ -75,3 +75,23 @@ export function parseArgs(provider: string, raw: unknown): unknown {
     return { __invalidJson: raw.slice(0, 500), __provider: provider };
   }
 }
+
+/** GET JSON with a timeout; same error policy as postJson (no upstream bodies passed through). */
+export async function getJson(fetcher: Fetcher, provider: string, url: string, headers: Record<string, string>, timeoutMs: number): Promise<any> {
+  let response: Response;
+  try {
+    response = await fetcher(url, { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
+  } catch {
+    throw new PlatformError("PROVIDER_NETWORK", `${provider} 请求超时或网络失败`, 502);
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    const hint = response.status === 401 || response.status === 403 ? "请检查 API key" : response.status === 404 ? "这个接口地址不提供模型列表" : "上游服务错误";
+    throw new PlatformError("PROVIDER_HTTP", `${provider} 返回 HTTP ${response.status}：${hint}`, 502);
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new PlatformError("PROVIDER_PROTOCOL", `${provider} 返回了无法解析的响应`, 502);
+  }
+}

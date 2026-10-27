@@ -1,4 +1,4 @@
-// OpenRouter, OpenAI-compatible Chat Completions API.
+// Chat Completions API: OpenRouter, and OpenAI-compatible endpoints (OpenAI "chat" mode, relays).
 // - The assistant message that made tool calls is sent back with its `reasoning_details` unmodified,
 //   which Claude and Gemini need to keep their reasoning across tool steps.
 // - For anthropic/* models the system prompt is sent as two cached content blocks (stable + dynamic).
@@ -67,17 +67,40 @@ function usage(u: any): Usage | undefined {
 }
 
 export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fetch): ModelProvider {
+  return chatCompletionsProvider(config, fetcher, "openrouter");
+}
+
+/**
+ * Plain OpenAI-style Chat Completions. Differences from OpenRouter: no cache breakpoints (OpenAI caches
+ * prefixes itself), `reasoning_effort` instead of `reasoning`, and `max_completion_tokens` on api.openai.com
+ * (its reasoning models reject `max_tokens`; relays usually expect `max_tokens`).
+ */
+export function openaiChatProvider(config: ProviderConfig, fetcher: Fetcher = fetch): ModelProvider {
+  return chatCompletionsProvider(config, fetcher, "openai");
+}
+
+function chatCompletionsProvider(config: ProviderConfig, fetcher: Fetcher, flavor: "openrouter" | "openai"): ModelProvider {
+  const openrouter = flavor === "openrouter";
+  const official = /(^|\.)api\.openai\.com$/.test(new URL(config.baseUrl).hostname);
+  const limitKey = !openrouter && official ? "max_completion_tokens" : "max_tokens";
   const call = async (body: Record<string, unknown>) => {
+    const { max_tokens, ...rest } = body as { max_tokens?: number };
     const data = await postJson(
       fetcher,
-      "openrouter",
+      flavor,
       `${config.baseUrl.replace(/\/$/, "")}/chat/completions`,
-      { authorization: `Bearer ${config.apiKey ?? ""}`, "X-Title": "AI KP" },
+      { authorization: `Bearer ${config.apiKey ?? ""}`, ...(openrouter ? { "X-Title": "AI KP" } : {}) },
       {
         model: config.model,
-        max_tokens: config.maxTokens,
-        ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
-        ...body,
+        [limitKey]: max_tokens ?? config.maxTokens,
+        ...(config.reasoningEffort && config.reasoningEffort !== "none"
+          ? openrouter
+            ? { reasoning: { effort: config.reasoningEffort } }
+            : { reasoning_effort: config.reasoningEffort }
+          : openrouter && config.reasoningEffort === "none"
+            ? { reasoning: { effort: "none" } }
+            : {}),
+        ...rest,
       },
       config.timeoutMs,
     );
@@ -86,7 +109,7 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
     if (err)
       throw new PlatformError(
         "PROVIDER_HTTP",
-        `openrouter 上游错误${err.code ? `（${String(err.code).slice(0, 20)}）` : ""}；请检查模型名、余额或稍后重试`,
+        `${flavor} 上游错误${err.code ? `（${String(err.code).slice(0, 20)}）` : ""}；请检查模型名、余额或稍后重试`,
         502,
       );
     return data;
@@ -95,7 +118,7 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
   const read = (data: any): StepResult => {
     const choice = data?.choices?.[0];
     const msg = choice?.message;
-    if (!msg) throw new PlatformError("PROVIDER_PROTOCOL", "openrouter 响应缺少 choices[0].message", 502);
+    if (!msg) throw new PlatformError("PROVIDER_PROTOCOL", `${flavor} 响应缺少 choices[0].message`, 502);
     const toolCalls: any[] = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
     const text = typeof msg.content === "string" ? msg.content.trim() : "";
     // Rebuild the assistant message to replay: content, tool calls and reasoning exactly as received.
@@ -106,7 +129,7 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
     const calls = toolCalls.map((c) => ({
       id: String(c.id),
       name: String(c.function?.name),
-      args: parseArgs("openrouter", c.function?.arguments),
+      args: parseArgs(flavor, c.function?.arguments),
     }));
     let stop = STOP[choice.finish_reason] ?? (calls.length ? "tool_use" : "other");
     if (calls.length && stop !== "max_tokens") stop = "tool_use";
@@ -115,12 +138,14 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
   };
 
   return {
-    id: "openrouter",
+    id: flavor,
     model: config.model,
     async step(req) {
       return read(
         await call({
-          messages: [systemMessage(req, config.model), ...cacheNewest(messages(req.history), config.model)],
+          messages: openrouter
+            ? [systemMessage(req, config.model), ...cacheNewest(messages(req.history), config.model)]
+            : [{ role: "system", content: req.system }, ...messages(req.history)],
           tools: req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
           ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
         }),
@@ -129,12 +154,12 @@ export function openrouterProvider(config: ProviderConfig, fetcher: Fetcher = fe
     async complete(req) {
       const r = read(
         await call({
-          messages: [systemMessage({ system: req.system }, config.model), { role: "user", content: req.prompt }],
+          messages: [openrouter ? systemMessage({ system: req.system }, config.model) : { role: "system", content: req.system }, { role: "user", content: req.prompt }],
           ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
         }),
       );
       if (r.stop === "max_tokens" || r.stop === "refused")
-        throw new PlatformError("PROVIDER_INCOMPLETE", "openrouter 输出被截断或拒绝", 502);
+        throw new PlatformError("PROVIDER_INCOMPLETE", `${flavor} 输出被截断或拒绝`, 502);
       return r.text;
     },
   };

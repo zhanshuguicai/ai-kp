@@ -19,6 +19,56 @@ let view = null;
 let busy = false;
 let poll = null;
 let scenarios = [];
+let providers = [];
+
+// ---------------- providers & model lists ----------------
+const PROVIDER_LABEL = { openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Anthropic", gemini: "Google Gemini", demo: "离线演示" };
+const providerName = (p) => `${PROVIDER_LABEL[p.id] || p.id}${p.configured ? "" : "（未配置）"}`;
+/** Replace a select's options, keeping the current choice when it still exists. */
+function fillSelect(id, options, fallback) {
+  const s = $(id);
+  const keep = s.value;
+  s.replaceChildren(...options);
+  if (keep && [...s.options].some((o) => o.value === keep)) s.value = keep;
+  else if (fallback !== undefined) s.value = fallback;
+}
+const modelCache = new Map(); // provider -> models[] (or a pending promise)
+async function modelsOf(provider, force = false) {
+  if (!provider || provider === "demo") return [];
+  if (!force && modelCache.has(provider)) return modelCache.get(provider);
+  const p = api("GET", `/providers/${provider}/models`).then((r) => r.models);
+  modelCache.set(provider, p);
+  try {
+    const models = await p;
+    modelCache.set(provider, models);
+    fillDatalist(provider, models);
+    return models;
+  } catch (e) {
+    modelCache.delete(provider);
+    throw e;
+  }
+}
+const priceText = (m) => (m.price ? ` · $${m.price.input}/$${m.price.output} 每百万 token` : "");
+function fillDatalist(provider, models) {
+  let dl = $(`ml-${provider}`);
+  if (!dl) {
+    dl = el("datalist");
+    dl.id = `ml-${provider}`;
+    $("model-lists").append(dl);
+  }
+  dl.replaceChildren(...models.map((m) => option(m.id, `${m.name && m.name !== m.id ? m.name : ""}${priceText(m)}`.replace(/^ · /, ""))));
+}
+/** Link a model input to the model list of whichever provider its select points at; fetch on first focus. */
+function bindModelInput(inputId, providerOf) {
+  const input = $(inputId);
+  const sync = () => input.setAttribute("list", `ml-${providerOf()}`);
+  input.addEventListener("focus", () => {
+    sync();
+    const p = providerOf();
+    if (providers.find((x) => x.id === p)?.configured || p === "openrouter") modelsOf(p).catch(() => {});
+  });
+  return sync;
+}
 
 function remember() {
   try { sessionStorage.setItem("aikp-organizer", JSON.stringify({ token, campaignId })); } catch {}
@@ -66,19 +116,23 @@ async function loadAll() {
     api("GET", "/systems"), api("GET", "/providers"), api("GET", "/scenarios"), api("GET", "/campaigns"),
   ]);
   $("cp-system").replaceChildren(...sys.systems.map((s) => option(s.id, s.name)));
-  $("cp-provider").replaceChildren(...prov.providers.map((p) => option(p.id, `${p.id}${p.configured ? "" : "（未配置）"}`)));
-  $("pv-id").replaceChildren(...prov.providers.filter((p) => p.id !== "demo").map((p) => option(p.id, p.id)));
-  $("providers").replaceChildren(...prov.providers.map((p) => el("li", "", `${p.id}：${p.model}${p.reasoningEffort ? ` · 推理 ${p.reasoningEffort}` : ""} · ${p.configured ? "已配置" : "未配置"}`)));
-  const auxOptions = () => [option("", "同主力供应商"), ...prov.providers.map((p) => option(p.id, p.id))];
-  $("cp-aux-provider").replaceChildren(...auxOptions());
-  $("md-aux-provider").replaceChildren(...auxOptions());
+  providers = prov.providers;
+  const firstConfigured = providers.find((p) => p.configured && p.id !== "demo")?.id || "demo";
+  const all = () => providers.map((p) => option(p.id, providerName(p)));
+  fillSelect("cp-provider", all(), firstConfigured);
+  fillSelect("md-provider", all());
+  fillSelect("pv-id", providers.filter((p) => p.id !== "demo").map((p) => option(p.id, providerName(p))), "openrouter");
+  $("providers").replaceChildren(...providers.map((p) => el("li", "", `${PROVIDER_LABEL[p.id] || p.id}：${p.model}${p.apiMode ? ` · ${p.apiMode === "chat" ? "Chat 兼容" : "Responses"}` : ""}${p.reasoningEffort ? ` · 推理 ${p.reasoningEffort}` : ""} · ${p.configured ? "已配置" : "未配置"}`)));
+  const auxOptions = () => [option("", "同主力接口"), ...all()];
+  fillSelect("cp-aux-provider", auxOptions());
+  fillSelect("md-aux-provider", auxOptions());
+  // Background refreshes must not wipe what the organizer is typing.
+  if (!$("provider-form").dataset.touched) renderProviderForm();
   scenarios = sc.scenarios;
   const keep = $("cp-scenario").value;
   $("cp-scenario").replaceChildren(...scenarios.map((s) => option(s.id, `${s.title}${s.compileStatus === "done" ? "" : `（${STATUS[s.compileStatus]}）`}`)));
   if (keep && scenarios.some((s) => s.id === keep)) $("cp-scenario").value = keep;
-  const keepProvider = $("sc-provider").value;
-  $("sc-provider").replaceChildren(...prov.providers.map((p) => option(p.id, `${p.id}${p.configured ? "" : "（未配置）"}`)));
-  $("sc-provider").value = keepProvider || prov.providers.find((p) => p.configured && p.id !== "demo")?.id || "demo";
+  fillSelect("sc-provider", all(), firstConfigured);
   renderScenarios();
   renderBlurb();
   renderCampaigns(cp.campaigns);
@@ -220,6 +274,7 @@ function renderModels() {
   );
   const s = view.campaign.models;
   if (document.activeElement?.closest?.("#models-form") == null) {
+    $("md-provider").value = view.campaign.provider;
     $("md-main").value = s.main || "";
     $("md-aux-provider").value = s.auxProvider || "";
     $("md-aux").value = s.auxModel || "";
@@ -356,17 +411,68 @@ $("campaign-form").addEventListener("submit", (e) => {
   });
 });
 
+// The settings form shows the stored values of the selected provider.
+function renderProviderForm() {
+  const p = providers.find((x) => x.id === $("pv-id").value);
+  if (!p) return;
+  $("pv-status").textContent = `${p.configured ? "已配置 API key" : "未配置 API key"} · 当前默认模型 ${p.model}`;
+  $("pv-mode-row").hidden = p.id !== "openai";
+  $("pv-mode").value = p.apiMode || "responses";
+  $("pv-url").value = p.baseUrl || "";
+  $("pv-model").value = p.model || "";
+  $("pv-effort").value = p.reasoningEffort || "";
+  $("pv-max").value = p.maxTokens || "";
+  $("pv-key").value = "";
+  $("pv-key-delete").checked = false;
+  $("pv-model-info").textContent = "";
+  $("pv-model").setAttribute("list", `ml-${p.id}`);
+  delete $("provider-form").dataset.touched;
+}
+$("pv-id").addEventListener("change", renderProviderForm);
+$("provider-form").addEventListener("input", (e) => {
+  if (e.target.id !== "pv-id") $("provider-form").dataset.touched = "1";
+});
+$("pv-fetch").addEventListener("click", () => run(async () => {
+  const id = $("pv-id").value;
+  $("pv-fetch").disabled = true;
+  $("pv-model-info").textContent = "正在获取…";
+  try {
+    const models = await modelsOf(id, true);
+    $("pv-model-info").textContent = `共 ${models.length} 个可用模型，在"默认模型"里输入关键词即可筛选`;
+    $("pv-model").focus();
+  } catch (e) {
+    $("pv-model-info").textContent = "";
+    throw e;
+  } finally {
+    $("pv-fetch").disabled = false;
+  }
+}));
+$("pv-model").addEventListener("change", () => {
+  const list = modelCache.get($("pv-id").value);
+  const m = Array.isArray(list) ? list.find((x) => x.id === $("pv-model").value.trim()) : null;
+  $("pv-model-info").textContent = m ? `${m.name || m.id}${m.contextLength ? ` · 上下文 ${Math.round(m.contextLength / 1000)}k` : ""}${priceText(m)}` : "";
+});
 $("provider-form").addEventListener("submit", (e) => {
   e.preventDefault();
+  const id = $("pv-id").value;
+  const p = providers.find((x) => x.id === id);
   run(async () => {
+    // Send only what changed; an emptied field means "back to the default".
     const body = {};
     if ($("pv-key").value.trim()) body.apiKey = $("pv-key").value.trim();
-    if ($("pv-model").value.trim()) body.model = $("pv-model").value.trim();
-    if ($("pv-url").value.trim()) body.baseUrl = $("pv-url").value.trim();
-    if ($("pv-effort").value) body.reasoningEffort = $("pv-effort").value;
-    await api("POST", `/providers/${$("pv-id").value}`, body);
-    $("pv-key").value = "";
-    notice("模型设置已保存", true);
+    if ($("pv-key-delete").checked) body.deleteApiKey = true;
+    const model = $("pv-model").value.trim();
+    if (model !== (p?.model || "")) body.model = model || null;
+    const url = $("pv-url").value.trim();
+    if (url !== (p?.baseUrl || "")) body.baseUrl = url || null;
+    if ($("pv-effort").value !== (p?.reasoningEffort || "")) body.reasoningEffort = $("pv-effort").value || null;
+    const max = $("pv-max").value.trim();
+    if (max !== String(p?.maxTokens || "")) body.maxTokens = max ? Number(max) : null;
+    if (id === "openai" && $("pv-mode").value !== (p?.apiMode || "responses")) body.apiMode = $("pv-mode").value;
+    await api("POST", `/providers/${id}`, body);
+    modelCache.delete(id);
+    delete $("provider-form").dataset.touched;
+    notice(`${PROVIDER_LABEL[id] || id} 设置已保存`, true);
     await loadAll();
   });
 });
@@ -387,6 +493,7 @@ $("models-form").addEventListener("submit", (e) => {
   if (!campaignId) return;
   run(async () => {
     await api("PUT", `/campaigns/${campaignId}/models`, {
+      provider: $("md-provider").value,
       main: $("md-main").value.trim() || null,
       auxProvider: $("md-aux-provider").value || null,
       auxModel: $("md-aux").value.trim() || null,
@@ -442,3 +549,14 @@ poll = setInterval(() => {
 $("token").value = token;
 setBusy(false);
 if (token) run(loadAll);
+
+// Model suggestions follow the provider each model field belongs to.
+const syncers = [
+  bindModelInput("sc-model", () => $("sc-provider").value),
+  bindModelInput("cp-main", () => $("cp-provider").value),
+  bindModelInput("cp-aux", () => $("cp-aux-provider").value || $("cp-provider").value),
+  bindModelInput("md-main", () => $("md-provider").value),
+  bindModelInput("md-aux", () => $("md-aux-provider").value || $("md-provider").value),
+];
+for (const id of ["sc-provider", "cp-provider", "cp-aux-provider", "md-provider", "md-aux-provider"])
+  $(id).addEventListener("change", () => syncers.forEach((f) => f()));

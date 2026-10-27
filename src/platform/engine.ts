@@ -18,7 +18,9 @@ import {
   resolveProviderConfig,
   type ProviderConfig,
   type ModelProvider,
+  isApiMode,
 } from "./providers/index.js";
+import { listModels, type ModelInfo } from "./providers/models.js";
 import type { Fetcher } from "./providers/http.js";
 import { initialState, publicState, type WorldState } from "./kp/state.js";
 import { buildKpTools, checkRecords, PUSH_WINDOW, type CheckRecord, type TurnScratch } from "./kp/tools.js";
@@ -75,6 +77,7 @@ export class Platform {
   private queues = new Map<string, Promise<unknown>>();
   private compressing = new Map<string, Promise<void>>();
   private compressErrors = new Map<string, string>();
+  private modelLists = new Map<string, { at: number; models: ModelInfo[] }>();
   private compiling = new Map<string, Promise<void>>();
   private indexes = new Map<string, ScenarioIndex>();
   readonly env: NodeJS.ProcessEnv;
@@ -143,6 +146,12 @@ export class Platform {
       ensure(b.reasoningEffort === null || isReasoningEffort(b.reasoningEffort), "INVALID_INPUT", "reasoningEffort 需为 none/minimal/low/medium/high/xhigh");
       stored.reasoningEffort = b.reasoningEffort ?? undefined;
     }
+    if (b.apiMode !== undefined) {
+      ensure(id === "openai", "INVALID_INPUT", "只有 openai 可以选择接口模式");
+      ensure(b.apiMode === null || isApiMode(b.apiMode), "INVALID_INPUT", "apiMode 需为 responses（官方 Responses API）或 chat（Chat Completions 兼容接口）");
+      if (b.apiMode) stored.apiMode = b.apiMode;
+      else delete stored.apiMode;
+    }
     if (b.maxTokens !== undefined) {
       ensure(b.maxTokens === null || (Number.isInteger(b.maxTokens) && b.maxTokens >= 256 && b.maxTokens <= 64000), "INVALID_INPUT", "maxTokens 需为 256-64000 的整数");
       stored.maxTokens = b.maxTokens ?? undefined;
@@ -155,7 +164,20 @@ export class Platform {
       } else delete stored.baseUrl;
     }
     this.store.setSetting(`provider:${id}`, stored);
+    this.modelLists.delete(id);
     return this.providers().find((p) => p.id === id);
+  }
+
+  /** Models the provider offers, for the settings page. Cached for 10 minutes per provider. */
+  async listModels(id: string): Promise<ModelInfo[]> {
+    ensure(isProviderId(id), "INVALID_PROVIDER", `不支持的模型供应商 ${id}`);
+    const config = this.providerConfig(id);
+    ensure(id === "openrouter" || !!config.apiKey, "MISSING_CREDENTIALS", `${id} 未配置 API key，无法获取模型列表`, 400);
+    const hit = this.modelLists.get(id);
+    if (hit && Date.now() - hit.at < 600_000) return hit.models;
+    const models = await listModels(id, config, this.opts.fetcher);
+    this.modelLists.set(id, { at: Date.now(), models });
+    return models;
   }
 
   // ---------------- scenarios ----------------
@@ -241,7 +263,7 @@ export class Platform {
     const system = getRuleSystem(str(b.systemId, "systemId", 60));
     this.store.getScenario(str(b.scenarioId, "scenarioId", 60));
     const provider = str(b.provider, "provider", 30);
-    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / anthropic / openai / gemini");
+    ensure(provider === "demo" || isProviderId(provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
     ensure(Array.isArray(b.players) && b.players.length >= 1 && b.players.length <= 12, "INVALID_INPUT", "需要 1-12 名玩家");
     const settings: CampaignSettings = normalizeSettings(b.settings);
     if (b.models !== undefined) settings.models = this.parseModels(b.models, settings.models);
@@ -317,9 +339,21 @@ export class Platform {
   }
   setModels(campaignId: string, body: unknown) {
     const c = this.store.getCampaign(campaignId);
-    const settings = { ...c.settings, models: this.parseModels(body, c.settings.models) };
-    this.store.updateSettings(campaignId, settings);
-    return this.models({ ...c, settings });
+    const b = obj(body);
+    let provider = c.provider;
+    if (b.provider !== undefined && b.provider !== null && b.provider !== "") {
+      ensure(b.provider === "demo" || isProviderId(b.provider), "INVALID_PROVIDER", "provider 需为 demo / openrouter / anthropic / openai / gemini");
+      provider = b.provider as string;
+    }
+    const models = this.parseModels(body, c.settings.models);
+    // A model name belongs to its provider: switching providers without naming a model means "its default".
+    if (provider !== c.provider && b.main === undefined) models.main = null;
+    const settings = { ...c.settings, models };
+    this.store.tx(() => {
+      if (provider !== c.provider) this.store.setCampaignProvider(campaignId, provider);
+      this.store.updateSettings(campaignId, settings);
+    });
+    return this.models({ ...c, provider, settings });
   }
 
   setCharacter(campaignId: string, playerId: string, body: unknown) {

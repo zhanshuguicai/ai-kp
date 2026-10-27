@@ -331,6 +331,10 @@ export class Store {
       .map((r) => ({ turnId: r.turn_id === null ? null : String(r.turn_id), data: parse(r.data) }))
       .reverse();
   }
+  setCampaignProvider(campaignId: string, provider: string) {
+    const res = this.db.prepare("UPDATE campaigns SET provider = ? WHERE id = ?").run(provider, campaignId);
+    ensure(Number(res.changes) === 1, "NOT_FOUND", "团不存在", 404);
+  }
   updateSettings(campaignId: string, settings: CampaignSettings) {
     const res = this.db.prepare("UPDATE campaigns SET settings = ? WHERE id = ?").run(json(settings), campaignId);
     ensure(Number(res.changes) === 1, "NOT_FOUND", "团不存在", 404);

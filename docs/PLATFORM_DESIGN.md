@@ -95,6 +95,13 @@
 
 工具循环的容错：参数错误、未知工具、JSON 损坏都作为错误结果回给模型重试（超过 6 次才失败）；模型只输出文本时直接当作回复；只有输出被截断、拒绝或 8 步内没有回复才判定本轮失败。
 
+### API 与模型设置（组织者页面左栏）
+
+- **接口**：OpenRouter、OpenAI、Anthropic、Google Gemini。每个接口可设 API key（不回显，可删除）、接口地址、默认模型、推理强度、单次输出上限；保存在本机数据库，优先于 `.env`。
+- **OpenAI 接口模式**：`responses`（官方 Responses API，回传加密推理）或 `chat`（Chat Completions，用于兼容接口和第三方中转）。官方地址用 `max_completion_tokens`，其他地址用 `max_tokens`。
+- **模型列表**：`GET /api/v1/providers/:id/models`，服务端用已保存的 key 去拉取，缓存 10 分钟，改设置后失效。OpenRouter 只列支持工具调用的模型并带价格；Gemini 只列能生成内容的模型。页面上所有模型输入框（整理剧本、开团、本团模型）都会按所选接口给出候选。
+- **本团可换主力接口**：`PUT /api/v1/campaigns/:id/models {provider, main, auxProvider, auxModel}`；换接口但没填模型时，主力模型回到新接口的默认值（模型名不能跨接口沿用）。
+
 ### 模型选择（OpenRouter）
 
 - 默认主力：`anthropic/claude-opus-5.5`，推理强度 medium，输出上限 8000（推理 token 也计入上限）。

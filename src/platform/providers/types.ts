@@ -74,6 +74,11 @@ export interface ProviderConfig {
   baseUrl: string;
   timeoutMs: number;
   maxTokens: number;
-  /** Used by OpenRouter's unified `reasoning` parameter. */
+  /** Reasoning effort: OpenRouter `reasoning.effort`, OpenAI `reasoning.effort` / `reasoning_effort`. */
   reasoningEffort?: ReasoningEffort;
+  /** OpenAI only: "responses" (official Responses API) or "chat" (Chat Completions, for compatible relays). */
+  apiMode?: ApiMode;
 }
+
+export const API_MODES = ["responses", "chat"] as const;
+export type ApiMode = (typeof API_MODES)[number];

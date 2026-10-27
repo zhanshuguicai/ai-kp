@@ -2,10 +2,10 @@ import { PlatformError } from "../errors.js";
 import { anthropicProvider } from "./anthropic.js";
 import { openaiProvider } from "./openai.js";
 import { geminiProvider } from "./gemini.js";
-import { openrouterProvider } from "./openrouter.js";
+import { openaiChatProvider, openrouterProvider } from "./openrouter.js";
 import { demoProvider } from "./demo.js";
 import type { Fetcher } from "./http.js";
-import { REASONING_EFFORTS, type ModelProvider, type ProviderConfig, type ReasoningEffort } from "./types.js";
+import { API_MODES, REASONING_EFFORTS, type ApiMode, type ModelProvider, type ProviderConfig, type ReasoningEffort } from "./types.js";
 
 export * from "./types.js";
 
@@ -22,7 +22,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderId, ProviderConfig> = {
     reasoningEffort: "medium",
   },
   anthropic: { model: "claude-opus-5-5", baseUrl: "https://api.anthropic.com/v1", timeoutMs: 90000, maxTokens: 4000 },
-  openai: { model: "gpt-6.1-sol", baseUrl: "https://api.openai.com/v1", timeoutMs: 90000, maxTokens: 4000 },
+  openai: { model: "gpt-6.1-sol", baseUrl: "https://api.openai.com/v1", timeoutMs: 90000, maxTokens: 4000, apiMode: "responses" },
   gemini: { model: "gemini-4-argon", baseUrl: "https://generativelanguage.googleapis.com/v1beta", timeoutMs: 90000, maxTokens: 4000 },
 };
 
@@ -34,6 +34,8 @@ export const AUX_DEFAULTS: Partial<Record<ProviderId, string>> = {
 
 export const isProviderId = (v: unknown): v is ProviderId =>
   typeof v === "string" && (PROVIDER_IDS as readonly string[]).includes(v);
+
+export const isApiMode = (v: unknown): v is ApiMode => typeof v === "string" && (API_MODES as readonly string[]).includes(v);
 
 export const isReasoningEffort = (v: unknown): v is ReasoningEffort =>
   typeof v === "string" && (REASONING_EFFORTS as readonly string[]).includes(v);
@@ -48,6 +50,7 @@ export function resolveProviderConfig(
   const d = PROVIDER_DEFAULTS[id];
   const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
   const envEffort = env[`${p}_REASONING_EFFORT`];
+  const envMode = env[`${p}_API_MODE`];
   return {
     model: stored?.model || env[`${p}_MODEL`] || d.model,
     baseUrl: stored?.baseUrl || env[`${p}_BASE_URL`] || d.baseUrl,
@@ -55,6 +58,7 @@ export function resolveProviderConfig(
     maxTokens: stored?.maxTokens || num(env[`${p}_MAX_OUTPUT`]) || d.maxTokens,
     reasoningEffort: stored?.reasoningEffort || (isReasoningEffort(envEffort) ? envEffort : undefined) || d.reasoningEffort,
     apiKey: stored?.apiKey || env[`${p}_API_KEY`] || undefined,
+    ...(id === "openai" ? { apiMode: stored?.apiMode || (isApiMode(envMode) ? envMode : undefined) || d.apiMode } : {}),
   };
 }
 
@@ -69,7 +73,7 @@ export function createProvider(id: string, config: ProviderConfig | undefined, f
     case "anthropic":
       return anthropicProvider(config, fetcher);
     case "openai":
-      return openaiProvider(config, fetcher);
+      return config.apiMode === "chat" ? openaiChatProvider(config, fetcher) : openaiProvider(config, fetcher);
     case "gemini":
       return geminiProvider(config, fetcher);
   }

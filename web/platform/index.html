@@ -31,7 +31,7 @@
           <input id="sc-title" placeholder="剧本标题" required>
           <label class="file">选择 TXT / Markdown 文件<input id="sc-file" type="file" accept=".txt,.md,text/plain,text/markdown" required></label>
           <label>用于整理剧本的模型<select id="sc-provider"></select></label>
-          <input id="sc-model" placeholder="模型（留空用供应商默认，建议用主力模型）">
+          <input id="sc-model" placeholder="模型（留空用接口默认；建议用最强的模型，只整理一次）" autocomplete="off">
           <p class="muted small">只上传，不显示原文。导入后由模型整理出 KP 指南（你看不到）和一份无剧透简介。</p>
           <button type="submit">导入</button>
         </form>
@@ -46,28 +46,42 @@
           <div id="cp-blurb" class="blurb muted small"></div>
           <label>规则<select id="cp-system"></select></label>
           <label>模型供应商<select id="cp-provider"></select></label>
-          <input id="cp-main" placeholder="主力模型（留空用供应商默认）">
+          <input id="cp-main" placeholder="主力模型（留空用接口默认）" autocomplete="off">
           <label>辅助模型供应商（做摘要）<select id="cp-aux-provider"></select></label>
-          <input id="cp-aux" placeholder="辅助模型（留空：OpenRouter/Anthropic 用 Haiku 5.5）">
+          <input id="cp-aux" placeholder="辅助模型（留空：OpenRouter/Anthropic 用 Haiku 5.5）" autocomplete="off">
           <textarea id="cp-players" rows="3" placeholder="每行一位玩家：id,名字&#10;p1,林雾&#10;p2,周岚" required></textarea>
           <button type="submit">开团并生成邀请链接</button>
         </form>
       </details>
 
-      <details>
-        <summary>模型设置</summary>
+      <details id="api-settings">
+        <summary>API 与模型设置</summary>
         <form id="provider-form" class="stack">
-          <select id="pv-id"></select>
-          <input id="pv-key" type="password" placeholder="API key（留空保持不变）" autocomplete="off">
-          <input id="pv-model" placeholder="模型名（留空用默认）">
+          <label>接口<select id="pv-id"></select></label>
+          <div id="pv-status" class="muted small"></div>
+          <label id="pv-mode-row" hidden>接口模式<select id="pv-mode">
+            <option value="responses">Responses（OpenAI 官方，推荐）</option>
+            <option value="chat">Chat Completions（兼容接口 / 第三方中转）</option>
+          </select></label>
           <input id="pv-url" placeholder="接口地址（留空用默认）">
-          <label>推理强度（OpenRouter）<select id="pv-effort">
-            <option value="">保持不变</option>
+          <input id="pv-key" type="password" placeholder="API key（留空保持不变）" autocomplete="off">
+          <label class="check small"><input id="pv-key-delete" type="checkbox">删除已保存的 key</label>
+          <div class="row">
+            <input id="pv-model" placeholder="默认模型（留空用内置默认）" autocomplete="off">
+            <button id="pv-fetch" type="button" title="从接口获取可用模型">获取模型列表</button>
+          </div>
+          <div id="pv-model-info" class="muted small"></div>
+          <label>推理强度<select id="pv-effort">
+            <option value="">默认</option>
             <option value="none">none（关闭）</option>
+            <option value="minimal">minimal</option>
             <option value="low">low</option>
             <option value="medium">medium</option>
             <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
           </select></label>
+          <input id="pv-max" type="number" min="256" max="64000" step="1" placeholder="单次输出上限（token，留空用默认）">
+          <p class="muted small">设置保存在本机数据库，优先于 .env；API key 不会回显。推理强度对 OpenRouter 和 OpenAI 生效。</p>
           <button type="submit">保存</button>
         </form>
         <ul id="providers" class="list small"></ul>
@@ -107,9 +121,10 @@
         <h3>模型与用量</h3>
         <div id="models-info" class="muted">—</div>
         <form id="models-form" class="stack">
-          <input id="md-main" placeholder="主力模型（留空用默认）">
+          <label>主力接口<select id="md-provider"></select></label>
+          <input id="md-main" placeholder="主力模型（留空用默认）" autocomplete="off">
           <select id="md-aux-provider"></select>
-          <input id="md-aux" placeholder="辅助模型（留空用默认）">
+          <input id="md-aux" placeholder="辅助模型（留空用默认）" autocomplete="off">
           <button type="submit">更新本团模型</button>
         </form>
         <div id="usage" class="muted"></div>
@@ -133,6 +148,7 @@
       </section>
     </aside>
   </main>
+  <div id="model-lists" hidden></div>
   <script src="/app.js" type="module"></script>
 </body>
 </html>

@@ -62,6 +62,7 @@ export function openaiProvider(config: ProviderConfig, fetcher: Fetcher = fetch)
     model: config.model,
     store: false,
     include: ["reasoning.encrypted_content"],
+    ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
   };
   return {
     id: "openai",
