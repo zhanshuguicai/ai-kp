@@ -298,6 +298,7 @@ function renderCompression() {
   $("compression").replaceChildren(
     el("div", "", `未压缩记录 ${c.pendingTokens} / ${c.threshold} token（${pct}%）${c.custom ? "" : " · 默认阈值"}${c.running ? " · 正在压缩…" : ""}`),
     el("div", "", `已有片段摘要 ${c.summaries} 段、章节摘要 ${c.chapters} 段${c.summarizedThroughTurn ? ` · 已压缩到第 ${c.summarizedThroughTurn} 轮` : " · 尚未压缩"}`),
+    ...(c.repairs && (c.repairs.retried || c.repairs.patched) ? [el("div", "", `摘要保真：重写 ${c.repairs.retried} 次，补写 ${c.repairs.patched} 处遗漏`)] : []),
     ...(c.lastError ? [el("div", "cmp-error", `上次压缩失败：${c.lastError}`)] : []),
   );
   if (document.activeElement?.id !== "cmp-threshold") $("cmp-threshold").value = c.custom ? c.threshold : "";

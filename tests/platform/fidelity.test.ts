@@ -56,3 +56,18 @@ test("if the rewrite still drops facts, the program appends them; clues also go 
   assert.match(s.publicText, /已发现的线索：码头账簿记录着一艘没有船名的货船/);
   assert(!s.publicText.includes("老秦"), "NPC names are not added to the public version");
 });
+
+test("the organizer sees how often summaries were repaired, not what was repaired", async () => {
+  const provider = scripted(
+    [
+      () => calls(["record_clue", { text: "码头账簿记录着一艘没有船名的货船", clueId: null, foundBy: ["p1"] }], ["reply", { text: "找到了。", whispers: null }]),
+      () => reply("雾更浓了。"),
+    ],
+    [JSON.stringify({ public: "看了看。", kp: "看了看。" }), JSON.stringify({ public: "看了看。", kp: "看了看。" })],
+  );
+  const { platform, campaign } = setup({ provider });
+  await platform.message(campaign.id, { messageId: "m1", playerId: "p1", text: "我翻看账簿" });
+  await platform.message(campaign.id, { messageId: "m2", playerId: "p1", text: "继续" });
+  await platform.compressNow(campaign.id);
+  assert.deepEqual(platform.organizerView(campaign.id).compression.repairs, { retried: 1, patched: 1 });
+});

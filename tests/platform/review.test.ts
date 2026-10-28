@@ -68,6 +68,9 @@ test("two leaks in a row block the turn; nothing is published and the player can
   assert.equal(out.turn.status, "failed");
   assert.match(out.turn.error!, /可能提前透露了剧情/);
   assert(!store.events(campaign.id, { publicOnly: true }).some((e) => e.text.includes("拆了齿轮")));
+  // The failed turn still leaves diagnostics (counts and tool names only).
+  const diag = platform.organizerView(campaign.id).diagnostics.at(-1)!;
+  assert.deepEqual([diag.n, diag.review], [1, { checked: 2, rejected: 2, errors: 0 }]);
 });
 
 test("text-only replies are reviewed too, and a failing judge does not stop the game", async () => {
@@ -100,4 +103,13 @@ test("the organizer can switch review per campaign; new campaigns have it on", (
   assert.throws(() => platform.setReview(c.id, { enabled: "no" }), /true 或 false/);
   platform.setReview(c.id, { enabled: false });
   assert.equal(store.getCampaign(c.id).settings.review.enabled, false);
+});
+
+test("the judge also sees what players were already told in earlier public replies", async () => {
+  const provider = scripted([() => reply("地下室的门上钉着三道铁螺栓。"), () => reply("你们回想起地下室那扇被封死的门。")]);
+  const aux = judge([false, false]);
+  const { platform, campaign } = setup({ provider, aux: aux.provider, review: true });
+  await platform.message(campaign.id, { messageId: "m1", playerId: "p1", text: "我看看厨房" });
+  await platform.message(campaign.id, { messageId: "m2", playerId: "p1", text: "我们整理一下线索" });
+  assert.match(aux.prompts[1], /【KP 已公开】地下室的门上钉着三道铁螺栓。/);
 });

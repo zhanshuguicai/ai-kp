@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node --env-file-if-exists=.env dist/src/server.js",
     "test": "npm run build && node --disable-warning=ExperimentalWarning --test \"dist/tests/**/*.test.js\"",
-    "platform": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/src/platform/server.js"
+    "platform": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/src/platform/server.js",
+    "eval": "npm run build && node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/eval.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

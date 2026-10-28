@@ -3,6 +3,8 @@
 //   → background compression.
 import { PlatformError, ensure } from "./errors.js";
 import { createHash, randomBytes } from "node:crypto";
+import { appendFile } from "node:fs/promises";
+import { clipToTokens } from "./context/tokens.js";
 import { Store, normalizeSettings, type Campaign, type CampaignSettings, type GameEvent, type NewEvent, type Turn } from "./storage/store.js";
 import { chunkScenario } from "./scenario/chunker.js";
 import { ScenarioIndex } from "./scenario/retriever.js";
@@ -29,7 +31,7 @@ import { reviewReply } from "./kp/review.js";
 import { direct, type Directive } from "./director/director.js";
 import { assembleContext } from "./context/assembler.js";
 import { compress, compressThreshold, pendingTokens } from "./context/compressor.js";
-import { compileScenario, demoCompile, renderGuide, type CompiledScenario, type ScenarioBlurb } from "./scenario/compiler.js";
+import { compileScenario, demoCompile, publicMaterial, renderGuide, type CompiledScenario, type ScenarioBlurb } from "./scenario/compiler.js";
 
 export const MESSAGE_KINDS = ["dialogue", "action", "ooc", "auto"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
@@ -82,6 +84,7 @@ export class Platform {
   private queues = new Map<string, Promise<unknown>>();
   private compressing = new Map<string, Promise<void>>();
   private compressErrors = new Map<string, string>();
+  private compressRepairs = new Map<string, { retried: number; patched: number }>();
   private modelLists = new Map<string, { at: number; models: ModelInfo[] }>();
   private compiling = new Map<string, Promise<void>>();
   private indexes = new Map<string, ScenarioIndex>();
@@ -381,6 +384,7 @@ export class Platform {
       summarizedThroughTurn: lastTurn,
       running: this.compressing.has(campaign.id),
       lastError: this.compressErrors.get(campaign.id) ?? null,
+      repairs: this.compressRepairs.get(campaign.id) ?? { retried: 0, patched: 0 },
     };
   }
   setModels(campaignId: string, body: unknown) {
@@ -759,6 +763,10 @@ export class Platform {
             text: `${message}。${rolls.length ? "已掷出的骰点保留，" : ""}本轮其他变化未保存；请用新的消息重试。`,
             data: { code: known ? e.code : "INTERNAL" },
           },
+          // Diagnostics for the failed turn (tool names, steps, usage); KP-only like other directives.
+          ...((e as { trace?: unknown }).trace
+            ? [{ turnId: turn.id, type: "directive" as const, actor: null, visibility: "kp" as const, text: `本轮失败：${message}`, data: { directives, failed: true, trace: (e as { trace?: unknown }).trace } }]
+            : []),
         ]);
         this.store.finishTurn(turn.id, "failed", null, message);
       });
@@ -780,12 +788,31 @@ export class Platform {
     return async (reply: { text: string; whispers: { playerId: string; text: string }[] }) => {
       const s = scratch.state;
       const verdict = await reviewReply(aux, {
+        background: compiled ? publicMaterial(compiled) : "",
         secrets: [base, s.kpNotes.length ? `KP 私密笔记：\n${s.kpNotes.map((n) => `- ${n}`).join("\n")}` : ""].filter(Boolean).join("\n\n"),
-        known: s.clues.filter((c) => c.turn < scratch.turn.n).map((c) => `- ${c.text}`).join("\n"),
+        known: [
+          s.clues.filter((c) => c.turn < scratch.turn.n).map((c) => `- ${c.text}`).join("\n"),
+          // What players have actually been told: public summaries and the latest public KP replies.
+          ...this.store.activeSummaries(campaign.id).map((x) => `【前情】${x.publicText}`),
+          clipToTokens(
+            this.store
+              .events(campaign.id, { limit: 60, publicOnly: true })
+              .filter((e) => e.type === "kp")
+              .slice(-6)
+              .map((e) => `【KP 已公开】${e.text}`)
+              .join("\n"),
+            3000,
+          ),
+        ]
+          .filter(Boolean)
+          .join("\n"),
         revealedNow: s.clues.filter((c) => c.turn === scratch.turn.n).map((c) => c.text),
         action,
         reply: [reply.text, ...reply.whispers.map((w) => `（只发给 ${names.get(w.playerId) ?? w.playerId} 的私聊）${w.text}`)].join("\n\n"),
       });
+      // Developer-only: AIKP_REVIEW_LOG=<file> records each verdict with the reply. It contains spoilers.
+      if (this.env.AIKP_REVIEW_LOG)
+        await appendFile(this.env.AIKP_REVIEW_LOG, JSON.stringify({ turn: scratch.turn.n, action, leak: verdict.leak, reason: verdict.reason, reply: reply.text }) + "\n").catch(() => {});
       return verdict.leak ? verdict.reason || "回复透露了玩家还不知道的秘密" : null;
     };
   }
@@ -837,6 +864,7 @@ export class Platform {
           // Re-read: models may have been changed since the turn started.
           const current = this.store.getCampaign(campaign.id);
           const r = await compress(this.store, current, this.modelFor(current, "aux"));
+          this.noteRepairs(campaign.id, r);
           if (!r.level1 && !r.level2) break;
         }
         this.compressErrors.delete(campaign.id);
@@ -857,7 +885,13 @@ export class Platform {
   async compressNow(campaignId: string) {
     const campaign = this.store.getCampaign(campaignId);
     const r = await this.enqueue(campaignId, () => compress(this.store, campaign, this.modelFor(campaign, "aux"), { force: true }));
+    this.noteRepairs(campaignId, r);
     return { level1: !!r.level1, level2: !!r.level2 };
+  }
+  /** Counts of summary fidelity repairs since the server started (the patched facts themselves are not kept). */
+  private noteRepairs(campaignId: string, r: { retried?: number; patched?: string[] }) {
+    const cur = this.compressRepairs.get(campaignId) ?? { retried: 0, patched: 0 };
+    this.compressRepairs.set(campaignId, { retried: cur.retried + (r.retried ?? 0), patched: cur.patched + (r.patched?.length ?? 0) });
   }
 
   /** Wait for queued turns and background compression of a campaign (tests, shutdown). */
