@@ -125,12 +125,16 @@ button.danger:hover { background: #4a2a2a; }
 #add-player { margin-top: 8px; }
 #add-player input { min-width: 0; }
 .layout.play { grid-template-columns: minmax(0, 1fr) 320px; }
-.layout.play .composer { grid-template-columns: 120px 1fr auto; }
+.layout.play .composer.play-composer { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
+.play-composer textarea { min-height: 110px; max-height: 45vh; resize: vertical; font-size: 15px; line-height: 1.6; padding: 10px 12px; }
+.play-composer .composer-bar { display: flex; align-items: center; gap: 10px; }
+.play-composer .composer-bar > span:first-child { flex: 1; }
+.play-composer #send { min-width: 96px; padding: 8px 18px; font-size: 15px; margin-left: auto; }
 .right textarea#sheet { font-family: Consolas, monospace; font-size: 12px; }
 @media (max-width: 1100px) {
   .layout.play { grid-template-columns: 1fr; }
-  .layout.play .composer { grid-template-columns: 1fr auto; }
-  .layout.play .composer textarea { grid-column: 1 / -1; }
+  .play-composer .composer-bar > span:first-child { display: none; }
+  .play-composer textarea { min-height: 96px; }
 }
 .list.scenarios li { border: 1px solid var(--line); display: grid; gap: 3px; }
 .list.scenarios li .badge { justify-self: start; }

@@ -127,7 +127,11 @@ $("message-form").addEventListener("submit", (e) => {
   run(async () => {
     const r = await api("POST", "/messages", { messageId: newId(), text });
     if (r.turn.status === "failed") notice(r.turn.error || "这一轮失败了，请再发一次");
-    else $("msg-text").value = "";
+    else {
+      $("msg-text").value = "";
+      saveDraft();
+      fitComposer();
+    }
     await load();
   }).finally(() => {
     busy = false;
@@ -136,8 +140,24 @@ $("message-form").addEventListener("submit", (e) => {
   });
 });
 $("msg-text").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && e.ctrlKey) $("message-form").requestSubmit();
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("message-form").requestSubmit();
 });
+
+// The box grows with what is typed (up to 45% of the screen) and keeps an unsent draft across reloads.
+const DRAFT_KEY = "aikp-draft";
+function fitComposer() {
+  const t = $("msg-text");
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight + 2, Math.round(window.innerHeight * 0.45))}px`;
+  const n = t.value.length;
+  $("msg-count").textContent = n > 4000 ? `${n} / 6000` : "";
+}
+function saveDraft() {
+  try { sessionStorage.setItem(DRAFT_KEY, $("msg-text").value); } catch {}
+}
+$("msg-text").addEventListener("input", () => { fitComposer(); saveDraft(); });
+try { $("msg-text").value = sessionStorage.getItem(DRAFT_KEY) || ""; } catch {}
+fitComposer();
 
 $("sheet").addEventListener("input", () => { sheetDirty = true; });
 $("sheet-example").addEventListener("click", () => {
