@@ -162,6 +162,8 @@ export function platformServer(platform: Platform, adminToken: string, webDir = 
         }
         case "POST campaigns/:id/players":
           return send(201, { invite: platform.addPlayer(id, await readBody(req)) });
+        case "PUT campaigns/:id/review":
+          return send(200, { review: platform.setReview(id, await readBody(req)) });
         case "PUT campaigns/:id/compression":
           return send(200, { compression: platform.setCompression(id, await readBody(req)) });
         case "PUT campaigns/:id/models":

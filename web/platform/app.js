@@ -224,6 +224,7 @@ function render() {
   renderPlayers();
   renderModels();
   renderCompression();
+  $("review-enabled").checked = view.review?.enabled !== false;
   renderDiagnostics();
   renderReveal();
 }
@@ -315,6 +316,7 @@ function renderDiagnostics() {
       el("div", "", `第 ${d.n ?? "?"} 轮 · ${d.rounds ?? "?"} 步 · ${d.via === "text" ? "纯文本回复" : "reply 工具"} · 上下文 ${d.contextTokens ?? "?"}${cost}`),
       el("div", "muted small", `工具：${tools || "无"}`),
       el("div", "muted small", `节奏建议：${kinds}`),
+      ...(d.review ? [el("div", d.review.rejected ? "small" : "muted small", `防剧透审核：${d.review.rejected ? `退回重写 ${d.review.rejected} 次` : "通过"}${d.review.errors ? `（${d.review.errors} 次没能审核，已直接发出）` : ""}`)] : []),
     );
     return li;
   });
@@ -609,3 +611,14 @@ for (const role of ROLES) {
   $(`role-${role}-provider`).addEventListener("change", sync);
 }
 for (const id of ["sc-provider", "cp-provider", "cp-aux-provider"]) $(id).addEventListener("change", roleHints);
+
+// ---------------- spoiler review switch ----------------
+$("review-enabled").addEventListener("change", () => {
+  if (!campaignId) return;
+  const enabled = $("review-enabled").checked;
+  run(async () => {
+    await api("PUT", `/campaigns/${campaignId}/review`, { enabled });
+    notice(enabled ? "已开启防剧透审核" : "已关闭防剧透审核：KP 的回复将不经检查直接发出", true);
+    await loadCampaign();
+  });
+});

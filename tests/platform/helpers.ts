@@ -61,7 +61,7 @@ export function lastToolResults(req: StepRequest) {
   return last.results.map((r) => ({ ...r, body: JSON.parse(r.content) }));
 }
 
-export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; compiler?: ModelProvider; campaignProvider?: string; models?: Record<string, unknown>; env?: NodeJS.ProcessEnv; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean } = {}) {
+export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; compiler?: ModelProvider; campaignProvider?: string; models?: Record<string, unknown>; env?: NodeJS.ProcessEnv; rng?: Rng; systemId?: string; budgets?: Record<string, number>; sheets?: Record<string, unknown>; autoCompress?: boolean; review?: boolean } = {}) {
   const store = new Store(":memory:");
   const platform = new Platform(store, {
     providerFactory: (_id, { role }) =>
@@ -81,7 +81,8 @@ export function setup(opts: { provider?: ModelProvider; aux?: ModelProvider; com
       { id: "p1", name: "林雾", sheet: opts.sheets?.p1 ?? null },
       { id: "p2", name: "周岚", sheet: opts.sheets?.p2 ?? null },
     ],
-    settings: opts.budgets ? { budgets: opts.budgets } : undefined,
+    // Spoiler review is on in real campaigns; tests turn it on where they exercise it.
+    settings: { ...(opts.budgets ? { budgets: opts.budgets } : {}), review: { enabled: opts.review ?? false } },
   });
   return { store, platform, campaign, scenarioId: scenario.id };
 }

@@ -25,6 +25,7 @@ import type { Fetcher } from "./providers/http.js";
 import { CHOICE_TTL, initialState, publicState, type PendingChoice, type WorldState } from "./kp/state.js";
 import { buildKpTools, checkRecords, PUSH_WINDOW, type CheckRecord, type TurnScratch } from "./kp/tools.js";
 import { runAgent } from "./kp/agent.js";
+import { reviewReply } from "./kp/review.js";
 import { direct, type Directive } from "./director/director.js";
 import { assembleContext } from "./context/assembler.js";
 import { compress, compressThreshold, pendingTokens } from "./context/compressor.js";
@@ -353,6 +354,13 @@ export class Platform {
     );
     return { threshold: (b.threshold as number | null) ?? null };
   }
+  setReview(campaignId: string, body: unknown) {
+    const c = this.store.getCampaign(campaignId);
+    const b = obj(body);
+    ensure(typeof b.enabled === "boolean", "INVALID_INPUT", "enabled 需为 true 或 false");
+    this.store.updateSettings(campaignId, { ...c.settings, review: { enabled: b.enabled } });
+    return { enabled: b.enabled };
+  }
   setCompression(campaignId: string, body: unknown) {
     const c = this.store.getCampaign(campaignId);
     const settings = { ...c.settings, compression: this.parseCompression(body, c.settings, c.settings.compression) };
@@ -470,6 +478,8 @@ export class Platform {
         n: turnId ? (turnN.get(turnId) ?? null) : null,
         via: data?.trace?.via ?? null,
         rounds: data?.trace?.rounds ?? null,
+        // Counts only: the reviewer's reasons quote the secrets.
+        review: data?.trace?.review ?? null,
         tools: (data?.trace?.toolCalls ?? []).map((c: any) => ({ name: c.name, ok: c.ok, error: c.error ?? null })),
         // Kinds only: the reason texts can name clocks, clues and plans.
         directives: (data?.directives ?? []).map((d: any) => d.kind),
@@ -478,6 +488,7 @@ export class Platform {
       })),
       memory: { summaries: summaries.length, chapters: summaries.filter((s) => s.level === 2).length },
       compression: this.compressionStatus(campaign),
+      review: campaign.settings.review,
       public: this.publicView(campaignId),
     };
   }
@@ -706,7 +717,8 @@ export class Platform {
               ...(picked ? { choice: { id: picked.id, kind: picked.kind, stat: picked.stat, prompt: picked.prompt, picked: picked.chosen } } : {}),
             });
       const tools = buildKpTools({ system, index, rng: this.rng, clueIds: compiled?.clues.map((c) => c.id) });
-      const trace = await runAgent(this.modelFor(campaign, "main"), { system: ctx.system, parts: ctx.parts }, userInput, tools, scratch);
+      const review = this.reviewer(campaign, scenario.brief, compiled, scratch, input.text);
+      const trace = await runAgent(this.modelFor(campaign, "main"), { system: ctx.system, parts: ctx.parts }, userInput, tools, scratch, review ? { review } : {});
       const reply = scratch.reply!;
 
       this.store.tx(() => {
@@ -753,6 +765,29 @@ export class Platform {
     }
     if (this.opts.autoCompress !== false) this.scheduleCompress(campaign);
     return this.turnResult(this.store.findTurn(campaignId, input.messageId)!, false);
+  }
+
+  /**
+   * Spoiler review for this turn's reply, or null when off or when there is nothing secret to protect.
+   * Secrets: the compiled KP guide (or the hand-written brief) and the KP's private notes.
+   */
+  private reviewer(campaign: Campaign, brief: string, compiled: CompiledScenario | null, scratch: TurnScratch, action: string) {
+    if (!campaign.settings.review.enabled) return null;
+    const base = compiled ? renderGuide(compiled, 3000) : brief;
+    if (!base.trim() && !scratch.state.kpNotes.length) return null;
+    const aux = this.modelFor(campaign, "aux");
+    const names = new Map(scratch.players.map((p) => [p.id, p.name]));
+    return async (reply: { text: string; whispers: { playerId: string; text: string }[] }) => {
+      const s = scratch.state;
+      const verdict = await reviewReply(aux, {
+        secrets: [base, s.kpNotes.length ? `KP 私密笔记：\n${s.kpNotes.map((n) => `- ${n}`).join("\n")}` : ""].filter(Boolean).join("\n\n"),
+        known: s.clues.filter((c) => c.turn < scratch.turn.n).map((c) => `- ${c.text}`).join("\n"),
+        revealedNow: s.clues.filter((c) => c.turn === scratch.turn.n).map((c) => c.text),
+        action,
+        reply: [reply.text, ...reply.whispers.map((w) => `（只发给 ${names.get(w.playerId) ?? w.playerId} 的私聊）${w.text}`)].join("\n\n"),
+      });
+      return verdict.leak ? verdict.reason || "回复透露了玩家还不知道的秘密" : null;
+    };
   }
 
   /** Player checks from recent turns, for the push rules (see kp/tools guardRerolls). */

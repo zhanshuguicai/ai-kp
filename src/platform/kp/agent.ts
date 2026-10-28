@@ -10,12 +10,21 @@ export interface AgentOptions {
   maxRounds?: number;
   maxToolErrors?: number;
   maxCallsPerRound?: number;
+  /**
+   * Checked before a reply is accepted. Returns null when fine, or a message for the KP explaining what
+   * to fix; the KP then rewrites. Throwing counts as "could not check" and lets the reply through.
+   */
+  review?: (reply: NonNullable<TurnScratch["reply"]>) => Promise<string | null>;
+  /** How many rejected replies before the turn is failed instead of published. */
+  maxRejections?: number;
 }
 
 export interface AgentTrace {
   rounds: number;
   toolCalls: { name: string; ok: boolean; error?: string }[];
   via: "reply_tool" | "text";
+  /** Spoiler review: replies checked, rejected, and checks that could not run. */
+  review?: { checked: number; rejected: number; errors: number };
   /** Summed over all model calls of the turn. */
   usage: Required<Pick<Usage, "input" | "output" | "cached">> & { cost: number | null; calls: number };
 }
@@ -39,6 +48,27 @@ export async function runAgent(
     usage: { input: 0, output: 0, cached: 0, cost: null, calls: 0 },
   };
   let errors = 0;
+  const maxRejections = opts.maxRejections ?? 2;
+  /** Returns the KP-facing problem, or null when the reply may be published. */
+  const check = async (reply: NonNullable<TurnScratch["reply"]>): Promise<string | null> => {
+    if (!opts.review) return null;
+    trace.review ??= { checked: 0, rejected: 0, errors: 0 };
+    trace.review.checked++;
+    let problem: string | null;
+    try {
+      problem = await opts.review(reply);
+    } catch {
+      trace.review.errors++;
+      return null;
+    }
+    if (!problem) return null;
+    trace.review.rejected++;
+    if (trace.review.rejected >= maxRejections)
+      throw new PlatformError("SPOILER_BLOCKED", "KP 的回复可能提前透露了剧情，已拦截，本轮未发布", 502);
+    return problem;
+  };
+  const rewrite = (problem: string) =>
+    `防剧透审核没有通过：${problem}。请用 reply 重写公开回复，去掉这部分内容；不要重复检定或重复记录。`;
 
   for (let round = 0; round < maxRounds; round++) {
     trace.rounds = round + 1;
@@ -57,7 +87,13 @@ export async function runAgent(
 
     if (!step.calls.length) {
       if (!step.text) throw new PlatformError("PROVIDER_EMPTY", "模型没有给出任何回复", 502);
-      scratch.reply = { text: step.text, whispers: [] };
+      const reply = { text: step.text, whispers: [] };
+      const problem = await check(reply);
+      if (problem) {
+        history.push({ role: "user", text: rewrite(problem) });
+        continue;
+      }
+      scratch.reply = reply;
       trace.via = "text";
       return trace;
     }
@@ -98,7 +134,19 @@ export async function runAgent(
       }
     }
 
-    if (scratch.reply) return trace;
+    if (scratch.reply) {
+      const problem = await check(scratch.reply);
+      if (!problem) return trace;
+      // Hand the rejection back as the reply tool's result so the KP can try again.
+      scratch.reply = undefined;
+      const i = results.findIndex((r) => r.name === "reply" && !r.isError);
+      results[i] = { ...results[i], isError: true, content: JSON.stringify({ code: "SPOILER", message: rewrite(problem) }) };
+      for (let t = trace.toolCalls.length - 1; t >= 0; t--)
+        if (trace.toolCalls[t].name === "reply" && trace.toolCalls[t].ok) {
+          trace.toolCalls[t] = { name: "reply", ok: false, error: "SPOILER" };
+          break;
+        }
+    }
     if (errors > maxErrors)
       throw new PlatformError("TOOL_ERRORS", `模型连续给出无效工具参数（${errors} 次），本轮未发布`, 502);
     history.push({ role: "tool", results });

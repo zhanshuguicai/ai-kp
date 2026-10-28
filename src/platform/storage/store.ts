@@ -60,6 +60,8 @@ export interface CampaignSettings {
   models: { main: string | null; auxProvider: string | null; auxModel: string | null };
   /** Summarize older play once the not-yet-summarized log passes `threshold` tokens; null = 75% of budgets.recent. */
   compression: { threshold: number | null };
+  /** Spoiler review of public replies by the auxiliary model before they are published. */
+  review: { enabled: boolean };
 }
 export interface Campaign {
   id: string;
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: CampaignSettings = {
   director: { clueDrought: 4, sceneLength: 8, quietTurns: 4, failStreak: 3 },
   models: { main: null, auxProvider: null, auxModel: null },
   compression: { threshold: null },
+  review: { enabled: true },
 };
 
 /** Fill settings saved by older versions with current defaults. */
@@ -119,6 +122,7 @@ export function normalizeSettings(raw: any): CampaignSettings {
     director: { ...DEFAULT_SETTINGS.director, ...(raw?.director ?? {}) },
     models: { ...DEFAULT_SETTINGS.models, ...(raw?.models ?? {}) },
     compression: { ...DEFAULT_SETTINGS.compression, ...(raw?.compression ?? {}) },
+    review: { ...DEFAULT_SETTINGS.review, ...(raw?.review ?? {}) },
   };
 }
 
