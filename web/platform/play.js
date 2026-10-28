@@ -62,7 +62,50 @@ async function load() {
 
 const nameOf = (id) => view?.players.find((p) => p.id === id)?.name || id;
 
+// Questions the KP put to me (offer_choice). Only a click here counts as my decision.
+function renderChoices() {
+  const mine = (view.state.choices || []).filter((c) => c.playerId === view.me.id);
+  const box = $("choices");
+  // Rebuild only when something changed; replacing buttons on every poll can swallow a click.
+  const key = JSON.stringify([mine, busy]);
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.hidden = !mine.length;
+  box.replaceChildren(...mine.map((c) => {
+    const card = el("div", "choice");
+    card.append(el("div", "who", c.kind === "push" ? "KP 问你：要孤注一掷吗？" : "KP 请你做个决定"), el("div", "", c.prompt));
+    const row = el("div", "row");
+    for (const option of c.options) {
+      const b = el("button", option === "放弃" ? "" : "primary", option);
+      b.type = "button";
+      b.disabled = busy;
+      b.addEventListener("click", () => sendChoice(c, option));
+      row.append(b);
+    }
+    card.append(row);
+    return card;
+  }));
+}
+function sendChoice(c, option) {
+  if (busy) return;
+  busy = true;
+  renderChoices();
+  $("send").disabled = true;
+  $("send").textContent = "KP 思考中…";
+  run(async () => {
+    const r = await api("POST", "/messages", { messageId: newId(), choice: { id: c.id, option } });
+    if (r.turn.status === "failed") notice(r.turn.error || "这一轮失败了，请再选一次");
+    await load();
+  }).finally(() => {
+    busy = false;
+    $("send").disabled = false;
+    $("send").textContent = "发送";
+    if (view) renderChoices();
+  });
+}
+
 function render() {
+  renderChoices();
   $("title").textContent = view.campaign.name;
   document.title = `${view.campaign.name} · AI KP`;
   $("me").textContent = `你是 ${view.me.name} · ${view.me.systemName}`;

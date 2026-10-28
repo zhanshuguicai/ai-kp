@@ -4,11 +4,11 @@
 import { PlatformError } from "../errors.js";
 import type { CheckResult, OpposedResult, Rng, RuleSystem, ToolDef } from "../rules/types.js";
 import { executeRuleTool, ruleToolDefs } from "../rules/registry.js";
-import { RuleError, lookup, norm, objectSchema, sch } from "../rules/util.js";
+import { RuleError, lookup, norm, objectSchema, sch, synonyms } from "../rules/util.js";
 import type { NewEvent, Turn } from "../storage/store.js";
 import type { ScenarioIndex } from "../scenario/retriever.js";
 import { clipToTokens, estimateTokens } from "../context/tokens.js";
-import { MAX_KP_NOTES, type WorldState } from "./state.js";
+import { DECLINE_OPTION, MAX_CHOICES, MAX_KP_NOTES, PUSH_OPTION, type PendingChoice, type WorldState } from "./state.js";
 
 export class ToolInputError extends Error {
   constructor(
@@ -38,6 +38,8 @@ export interface TurnScratch {
   priorChecks?: CheckRecord[];
   /** Player checks made so far in this turn. */
   checks?: CheckRecord[];
+  /** The choice the acting player picked to start this turn, if any. */
+  choice?: PendingChoice;
 }
 
 /** One player's check, as remembered for the re-roll rules. */
@@ -134,6 +136,11 @@ function ruleTool(system: RuleSystem<any>, def: ToolDef, rng: Rng): KpTool {
       // Validate before anything is recorded, so a rejected roll leaves no trace and the model never sees it.
       guardRerolls(records, pushed, rest.actor, scratch);
       scratch.checks = [...(scratch.checks ?? []), ...records];
+      if (pushed && scratch.choice) {
+        const used = (scratch.state.choices ?? []).find((x) => x.id === scratch.choice!.id);
+        if (used) used.status = "used";
+        scratch.choice = { ...scratch.choice, status: "used" };
+      }
 
       const result = out.result as { summary: string };
       const opposed = (out.result as { kind?: string }).kind === "opposed" ? (out.result as OpposedResult) : null;
@@ -185,9 +192,14 @@ function guardRerolls(records: CheckRecord[], pushed: boolean, actor: unknown, s
   }
   if (!pushed) return;
   if (typeof actor !== "string" || !scratch.players.some((p) => p.id === actor)) bad("只有玩家角色可以孤注一掷", "PUSH_NOT_ALLOWED");
-  if (scratch.turn.playerId !== actor)
-    bad("孤注一掷必须由该玩家自己在本次发言中选择；请在回复里询问，等该玩家回答", "PUSH_NOT_ALLOWED");
   const r = records[0];
+  // The player must have picked "push" for this very check; typed words do not count.
+  const c = scratch.choice;
+  if (!c || c.kind !== "push" || c.playerId !== actor || c.chosen !== PUSH_OPTION || c.stat !== r.stat)
+    bad(
+      `孤注一掷需要玩家明确确认：先用 offer_choice（kind=push）询问，等该玩家点选「${PUSH_OPTION}」后，在那一轮才能 pushed=true`,
+      "PUSH_NOT_ALLOWED",
+    );
   const prior = (scratch.priorChecks ?? []).filter((c) => c.actor === r.actor && c.stat === r.stat && c.turn >= scratch.turn.n - PUSH_WINDOW);
   const last = prior[prior.length - 1];
   if (last?.pushed) bad("这项检定已经孤注一掷过，不能再次尝试", "PUSH_NOT_ALLOWED");
@@ -361,6 +373,65 @@ export function buildKpTools(opts: {
         scratch.state.tension = args.level as number;
         event(scratch, { type: "state", actor: null, visibility: "kp", text: `紧张度 ${args.level}：${text(args.reason, "reason", 200)}`, data: {} });
         return { ok: true };
+      },
+    },
+    {
+      def: {
+        name: "offer_choice",
+        description:
+          "请某位玩家做一个决定，玩家会在页面上点选（不是打字）。kind=push：某项检定失败后询问要不要孤注一掷，选项固定为「孤注一掷 / 放弃」；只有玩家点了「孤注一掷」的那一轮才能 pushed=true。kind=custom：其他需要玩家拍板的事（花资源、接受代价换成功、二选一），自己给 2-4 个选项。prompt 写给玩家看，说清后果，不要透露秘密。",
+        parameters: objectSchema({
+          playerId: sch.str("要做决定的玩家 id"),
+          kind: { type: "string", enum: ["push", "custom"], description: "push 孤注一掷 / custom 其他决定" },
+          stat: sch.nstr("kind=push 时填失败的那项技能；否则 null"),
+          prompt: sch.str("给玩家看的问题，包括选不同选项的后果"),
+          options: { type: ["array", "null"], items: { type: "string" }, description: "kind=custom 时的 2-4 个选项；kind=push 时为 null" },
+        }),
+      },
+      run(args, scratch) {
+        const playerId = text(args.playerId, "playerId", 64);
+        const player = scratch.players.find((p) => p.id === playerId);
+        if (!player) bad(`${playerId} 不是本团玩家`);
+        const prompt = text(args.prompt, "prompt", 500);
+        let options: string[];
+        let stat: string | undefined;
+        if (args.kind === "push") {
+          // Any name of the skill works: "Spot Hidden" finds a check recorded as "侦查".
+          const names = new Set(synonyms(text(args.stat, "stat", 60), system.statAliases ?? []).map(norm));
+          // The failed check may be from this turn or a recent one, and must not have been pushed already.
+          const history = [...(scratch.priorChecks ?? []), ...(scratch.checks ?? [])].filter(
+            (c) => c.actor === playerId && c.turn >= scratch.turn.n - PUSH_WINDOW,
+          );
+          const same = history.filter((c) => names.has(c.stat));
+          const last = same[same.length - 1];
+          if (!last || !last.failed || last.pushed) {
+            const pushable = [...new Set(history.filter((c) => c.failed && !c.pushed).map((c) => c.stat))];
+            bad(`${player!.name} 最近没有可以孤注一掷的「${args.stat}」检定${pushable.length ? `；可孤注一掷的：${pushable.join("、")}` : ""}`, "PUSH_NOT_ALLOWED");
+          }
+          stat = last!.stat;
+          options = [PUSH_OPTION, DECLINE_OPTION];
+        } else if (args.kind === "custom") {
+          if (!Array.isArray(args.options) || args.options.length < 2 || args.options.length > 4) bad("kind=custom 需要 2-4 个选项");
+          options = (args.options as unknown[]).map((o, i) => text(o, `options[${i}]`, 60));
+          if (new Set(options).size !== options.length) bad("选项不能重复");
+        } else return bad("kind 只能是 push 或 custom");
+        const choices = (scratch.state.choices ??= []);
+        // A new question to this player replaces any unanswered one.
+        for (const c of choices) if (c.playerId === playerId && c.status === "open") c.status = "expired";
+        const choice: PendingChoice = {
+          id: `ch${scratch.turn.n}-${choices.length + 1}`,
+          playerId,
+          kind: args.kind,
+          ...(stat ? { stat } : {}),
+          prompt,
+          options,
+          turn: scratch.turn.n,
+          status: "open",
+        };
+        choices.push(choice);
+        if (choices.length > MAX_CHOICES) choices.splice(0, choices.length - MAX_CHOICES);
+        event(scratch, { type: "state", actor: playerId, visibility: "public", text: `请 ${player!.name} 选择：${prompt}（${options.join(" / ")}）`, data: { choice } });
+        return { ok: true, id: choice.id, note: "玩家会在页面上点选；在回复里也提一句请 TA 选择" };
       },
     },
     {

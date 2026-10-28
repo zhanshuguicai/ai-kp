@@ -22,7 +22,7 @@ import {
 } from "./providers/index.js";
 import { listModels, type ModelInfo } from "./providers/models.js";
 import type { Fetcher } from "./providers/http.js";
-import { initialState, publicState, type WorldState } from "./kp/state.js";
+import { CHOICE_TTL, initialState, publicState, type PendingChoice, type WorldState } from "./kp/state.js";
 import { buildKpTools, checkRecords, PUSH_WINDOW, type CheckRecord, type TurnScratch } from "./kp/tools.js";
 import { runAgent } from "./kp/agent.js";
 import { direct, type Directive } from "./director/director.js";
@@ -574,11 +574,17 @@ export class Platform {
   // ---------------- turns ----------------
   message(campaignId: string, body: unknown): Promise<TurnOutcome> {
     const b = obj(body);
+    // A pick from offer_choice: { id, option }. The text is optional then.
+    const choice = b.choice === undefined || b.choice === null ? undefined : (() => {
+      const c = obj(b.choice);
+      return { id: str(c.id, "choice.id", 40), option: str(c.option, "choice.option", 60) };
+    })();
     const input = {
       messageId: str(b.messageId, "messageId", 200),
       playerId: str(b.playerId, "playerId", 64),
       kind: (b.kind ?? "auto") as MessageKind,
-      text: str(b.text, "text", 6000),
+      text: choice && (b.text === undefined || b.text === null || b.text === "") ? `【选择】${choice.option}` : str(b.text, "text", 6000),
+      choice,
     };
     ensure(MESSAGE_KINDS.includes(input.kind), "INVALID_INPUT", "kind 需为 dialogue / action / ooc / auto");
     // Players just write; out-of-character talk is marked the way tables usually do it.
@@ -612,7 +618,7 @@ export class Platform {
 
   private async process(
     campaignId: string,
-    input: { messageId: string; playerId: string | null; kind: MessageKind | "start"; text: string },
+    input: { messageId: string; playerId: string | null; kind: MessageKind | "start"; text: string; choice?: { id: string; option: string } },
   ): Promise<TurnOutcome> {
     const campaign = this.store.getCampaign(campaignId);
     const existing = this.store.findTurn(campaignId, input.messageId);
@@ -620,6 +626,20 @@ export class Platform {
     const characters = this.store.characters(campaignId);
     if (input.playerId)
       ensure(characters.some((c) => c.playerId === input.playerId), "INVALID_PLAYER", "玩家不在这个团里", 404);
+    // Checked inside the campaign queue, so two clicks cannot both use one choice.
+    let picked: PendingChoice | undefined;
+    if (input.choice) {
+      const lastN = this.store.turns(campaignId, 1)[0]?.n ?? 0;
+      const open = (this.store.getState<WorldState>(campaignId).state.choices ?? []).find((c) => c.id === input.choice!.id);
+      ensure(
+        open && open.status === "open" && open.playerId === input.playerId && lastN + 1 - open.turn <= CHOICE_TTL,
+        "CHOICE_CLOSED",
+        "这个选择已经失效（已回答、被新的问题替换或过期了）",
+        409,
+      );
+      ensure(open!.options.includes(input.choice.option), "INVALID_INPUT", "没有这个选项");
+      picked = { ...open!, status: "chosen", chosen: input.choice.option };
+    }
 
     const turn = this.store.createTurn(campaignId, input.messageId, input.playerId);
     this.store.appendEvents(campaignId, [
@@ -629,7 +649,7 @@ export class Platform {
         actor: input.playerId,
         visibility: "public",
         text: input.text,
-        data: { n: turn.n, kind: input.kind },
+        data: { n: turn.n, kind: input.kind, ...(picked ? { choice: { id: picked.id, option: picked.chosen } } : {}) },
       },
     ]);
 
@@ -641,7 +661,13 @@ export class Platform {
       players: characters.map((c) => ({ id: c.playerId, name: c.name })),
       events: [],
       priorChecks: this.priorChecks(campaignId, turn.n, characters.map((c) => c.playerId)),
+      ...(picked ? { choice: picked } : {}),
     };
+    // Record the pick, and let old unanswered questions lapse.
+    for (const c of scratch.state.choices ?? []) {
+      if (picked && c.id === picked.id) Object.assign(c, { status: "chosen", chosen: picked.chosen });
+      else if (c.status === "open" && turn.n - c.turn > CHOICE_TTL) c.status = "expired";
+    }
     let directives: Directive[] = [];
     try {
       const system = getRuleSystem(campaign.systemId);
@@ -671,7 +697,14 @@ export class Platform {
       const userInput =
         input.kind === "start"
           ? "请开场：交代背景，描述开场场景，抛出主线钩子；并用 update_scene、set_thread、update_npc 建立初始状态。"
-          : JSON.stringify({ turn: turn.n, playerId: input.playerId, playerName: player?.name, kind: input.kind, text: input.text });
+          : JSON.stringify({
+              turn: turn.n,
+              playerId: input.playerId,
+              playerName: player?.name,
+              kind: input.kind,
+              text: input.text,
+              ...(picked ? { choice: { id: picked.id, kind: picked.kind, stat: picked.stat, prompt: picked.prompt, picked: picked.chosen } } : {}),
+            });
       const tools = buildKpTools({ system, index, rng: this.rng, clueIds: compiled?.clues.map((c) => c.id) });
       const trace = await runAgent(this.modelFor(campaign, "main"), { system: ctx.system, parts: ctx.parts }, userInput, tools, scratch);
       const reply = scratch.reply!;

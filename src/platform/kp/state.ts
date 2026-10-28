@@ -9,7 +9,6 @@ export interface WorldState {
   /** `ref` links to a compiled scenario clue id when the KP gave one. */
   clues: { id: string; text: string; foundBy: string[]; turn: number; ref?: string }[];
   npcs: Record<string, { status: string; attitude: string; lastSeenTurn: number }>;
-  /** Threat clocks; KP only. */
   /** Threat clocks; KP only. `warned` = the fill level the director last warned about. */
   clocks: Record<string, { filled: number; size: number; note: string; warned?: number }>;
   /** 0 calm … 5 climax, maintained by the KP. */
@@ -17,6 +16,27 @@ export interface WorldState {
   lastClueTurn: number;
   /** Private KP notes; the oldest drop off (they stay in the event log and summaries). */
   kpNotes: string[];
+  /** Decisions offered to a player (push a roll, pay a cost…). Answered only by an explicit pick. */
+  choices?: PendingChoice[];
+}
+
+export const PUSH_OPTION = "孤注一掷";
+export const DECLINE_OPTION = "放弃";
+export const MAX_CHOICES = 30;
+/** Open choices older than this many turns expire. */
+export const CHOICE_TTL = 6;
+
+export interface PendingChoice {
+  id: string;
+  playerId: string;
+  /** "push": re-try a failed check (stat = the failed skill); "custom": any decision the KP needs. */
+  kind: "push" | "custom";
+  stat?: string;
+  prompt: string;
+  options: string[];
+  turn: number;
+  status: "open" | "chosen" | "used" | "expired";
+  chosen?: string;
 }
 
 export const MAX_KP_NOTES = 60;
@@ -31,6 +51,7 @@ export function initialState(): WorldState {
     tension: 1,
     lastClueTurn: 0,
     kpNotes: [],
+    choices: [],
   };
 }
 
@@ -50,6 +71,9 @@ export function renderState(s: WorldState, budget: number): string {
       ? `威胁时钟（仅KP）：${Object.entries(s.clocks).map(([n, c]) => `${n} ${c.filled}/${c.size}${c.note ? `（${c.note}）` : ""}`).join("；")}`
       : "",
     s.kpNotes.length ? `KP 私密笔记：\n${s.kpNotes.map((n) => `- ${n}`).join("\n")}` : "",
+    (s.choices ?? []).some((c) => c.status === "open")
+      ? `等待玩家选择：\n${(s.choices ?? []).filter((c) => c.status === "open").map((c) => `- ${c.id} → ${c.playerId}：${c.prompt}（${c.options.join(" / ")}）`).join("\n")}`
+      : "",
   ];
   return clipToTokens(lines.filter(Boolean).join("\n"), budget);
 }
@@ -61,5 +85,7 @@ export function publicState(s: WorldState) {
     threads: s.threads,
     clues: s.clues.map(({ text, foundBy, turn }) => ({ text, foundBy, turn })),
     npcs: Object.fromEntries(Object.entries(s.npcs).map(([n, v]) => [n, { status: v.status, attitude: v.attitude }])),
+    // Open questions to players; the prompt was written for the player, so it is public.
+    choices: (s.choices ?? []).filter((c) => c.status === "open").map(({ id, playerId, kind, prompt, options }) => ({ id, playerId, kind, prompt, options })),
   };
 }

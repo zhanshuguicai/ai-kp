@@ -83,48 +83,97 @@ test("the same character cannot roll the same skill twice in one turn; the rejec
   assert.deepEqual(rolls.map((e) => e.actor), ["p1", "p2"]);
 });
 
-test("a push needs a recent failure, must be chosen by that player, and works only once", async () => {
+const offer = (playerId: string, kind: "push" | "custom", stat: string | null, options: string[] | null = null) =>
+  ["offer_choice", { playerId, kind, stat, prompt: kind === "push" ? "再失败会惊动楼上的人。" : "要付出代价吗？", options }] as [string, Record<string, unknown>];
+
+test("a push needs a recent failure, the player's own click, and works only once", async () => {
   const steps = [
-    // Turn 1 (p1): 侦查 fails with 90; pushing right away in the same turn is refused.
+    // Turn 1 (p1): 侦查 fails with 90. Offering a push needs a matching failure; pushing in the same turn is refused.
     () => calls(check("p1", "侦查")),
-    () => calls(check("p1", "侦查", { pushed: true })),
+    () => calls(offer("p1", "push", "潜行"), offer("p1", "push", "Spot Hidden"), check("p1", "侦查", { pushed: true })),
     (req: any) => {
-      assert.equal(lastToolResults(req)[0].body.code, "ALREADY_ROLLED");
-      return reply("你没有发现什么。要孤注一掷吗？再失败会惊动楼上的人。");
+      const [noFailure, offered, again] = lastToolResults(req);
+      assert.equal(noFailure.body.code, "PUSH_NOT_ALLOWED");
+      assert.match(noFailure.body.message, /可孤注一掷的：侦查/);
+      assert.equal(offered.isError, false, "aliases of the failed skill are accepted");
+      assert.equal(again.body.code, "ALREADY_ROLLED");
+      return reply("你没有发现什么。要孤注一掷吗？");
     },
-    // Turn 2 (p2 speaks): the KP cannot push on p1's behalf.
+    // Turn 2 (p1 types it instead of clicking): typed words do not count.
     () => calls(check("p1", "侦查", { pushed: true })),
     (req: any) => {
       assert.equal(lastToolResults(req)[0].body.code, "PUSH_NOT_ALLOWED");
-      assert.match(lastToolResults(req)[0].body.message, /该玩家自己/);
-      return reply("周岚在门口望风。");
+      assert.match(lastToolResults(req)[0].body.message, /明确确认/);
+      return reply("请点选按钮确认。");
     },
-    // Turn 3 (p1 chooses to push): allowed; a push of a skill that never failed is refused.
-    () => calls(check("p1", "侦查", { pushed: true }), check("p1", "潜行", { pushed: true })),
+    // Turn 3 (p1 clicks 孤注一掷): the push goes through; the click covers only that skill.
     (req: any) => {
-      const [push, noFailure] = lastToolResults(req);
+      const input = JSON.parse((req.history[0] as any).text);
+      assert.deepEqual([input.choice.kind, input.choice.picked, input.choice.stat], ["push", "孤注一掷", "侦查"]);
+      return calls(check("p1", "侦查", { pushed: true }), check("p1", "潜行", { pushed: true }));
+    },
+    (req: any) => {
+      const [push, other] = lastToolResults(req);
       assert.equal(push.isError, false);
       assert.equal(push.body.outcome, "success");
-      assert.equal(noFailure.body.code, "PUSH_NOT_ALLOWED");
-      assert.match(noFailure.body.message, /没有这项技能的失败检定/);
+      assert.equal(other.body.code, "PUSH_NOT_ALLOWED");
       return reply("你在齿轮缝里找到了一枚铜钥匙。");
     },
-    // Turn 4 (p1): a second push of the same check is refused.
-    () => calls(check("p1", "侦查", { pushed: true })),
+    // Turn 4: the same check cannot be offered for a push again.
+    () => calls(offer("p1", "push", "侦查")),
     (req: any) => {
-      assert.match(lastToolResults(req)[0].body.message, /已经孤注一掷过/);
+      assert.equal(lastToolResults(req)[0].body.code, "PUSH_NOT_ALLOWED");
       return reply("没有更多发现了。");
     },
   ];
   const provider = scripted(steps);
-  const { platform, store, campaign } = setup({ provider, rng: scriptedRng([9, 0, 5, 5, 5, 5, 1, 0, 5, 5, 5, 5]), sheets: { p1: sheet } });
-  for (const [i, pid] of ["p1", "p2", "p1", "p1"].entries()) {
-    const out = await platform.message(campaign.id, { messageId: `m${i}`, playerId: pid, text: i === 2 ? "孤注一掷，再找一次" : "继续" });
+  const { platform, store, campaign } = setup({ provider, rng: scriptedRng([9, 0, 5, 5, 5, 5, 1, 0, 5, 5]), sheets: { p1: sheet } });
+  const ok = async (body: Record<string, unknown>) => {
+    const out = await platform.message(campaign.id, body);
     assert.equal(out.turn.status, "complete", out.turn.error ?? "");
-  }
+  };
+  await ok({ messageId: "m1", playerId: "p1", text: "我再仔细找找" });
+  const choice = (platform.playerView(campaign.id, "p1").state as any).choices[0];
+  assert.deepEqual([choice.kind, choice.options], ["push", ["孤注一掷", "放弃"]]);
+  assert.deepEqual((platform.playerView(campaign.id, "p2").state as any).choices.map((c: any) => c.playerId), ["p1"], "visible to all, answerable by p1 only");
+
+  await ok({ messageId: "m2", playerId: "p1", text: "孤注一掷！" });
+  await assert.rejects(platform.message(campaign.id, { messageId: "x1", playerId: "p2", choice: { id: choice.id, option: "孤注一掷" } }), /已经失效/);
+  await assert.rejects(platform.message(campaign.id, { messageId: "x2", playerId: "p1", choice: { id: choice.id, option: "再来一次" } }), /没有这个选项/);
+  await ok({ messageId: "m3", playerId: "p1", choice: { id: choice.id, option: "孤注一掷" } });
+  await assert.rejects(platform.message(campaign.id, { messageId: "x3", playerId: "p1", choice: { id: choice.id, option: "孤注一掷" } }), /已经失效/, "a choice is used once");
+  await ok({ messageId: "m4", playerId: "p1", text: "继续" });
+
   const rolls = store.events(campaign.id).filter((e) => e.type === "roll");
   assert.equal(rolls.length, 2);
   assert.match(rolls[1].text, /孤注一掷/);
+  const pick = store.events(campaign.id).find((e) => e.type === "player" && e.data.choice);
+  assert.equal(pick!.text, "【选择】孤注一掷");
+});
+
+test("custom choices: the player's pick reaches the KP; an unanswered question lapses", async () => {
+  const provider = scripted([
+    () => calls(offer("p1", "custom", null, ["付出 1 点理智", "放弃追问"]), ["reply", { text: "老秦盯着你。", whispers: null }]),
+    (req) => {
+      assert.equal(JSON.parse((req.history[0] as any).text).choice.picked, "付出 1 点理智");
+      return reply("你咬牙追问下去。");
+    },
+    () => calls(offer("p1", "custom", null, ["开门", "不开"]), ["reply", { text: "门外有敲门声。", whispers: null }]),
+    ...Array.from({ length: 7 }, () => () => reply("……")),
+  ]);
+  const { platform, campaign } = setup({ provider });
+  await platform.message(campaign.id, { messageId: "a", playerId: "p1", text: "我逼问老秦" });
+  const c = (platform.playerView(campaign.id, "p1").state as any).choices[0];
+  await platform.message(campaign.id, { messageId: "b", playerId: "p1", choice: { id: c.id, option: "付出 1 点理智" } });
+  assert.deepEqual((platform.playerView(campaign.id, "p1").state as any).choices, []);
+
+  // A question left unanswered for too long expires.
+  await platform.message(campaign.id, { messageId: "c", playerId: "p1", text: "我等着" });
+  const door = (platform.playerView(campaign.id, "p1").state as any).choices[0];
+  assert.equal(door.prompt, "要付出代价吗？");
+  for (let i = 0; i < 7; i++) await platform.message(campaign.id, { messageId: `w${i}`, playerId: "p2", text: "周岚四处看看" });
+  assert.deepEqual((platform.playerView(campaign.id, "p1").state as any).choices, [], "expired after the time limit");
+  await assert.rejects(platform.message(campaign.id, { messageId: "late", playerId: "p1", choice: { id: door.id, option: "开门" } }), /已经失效/);
 });
 
 test("players see that a hidden roll happened, not what it was", async () => {

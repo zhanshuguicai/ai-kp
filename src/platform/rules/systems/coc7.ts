@@ -247,6 +247,7 @@ export const coc7: RuleSystem<CocSheet> = {
   id: "coc7",
   name: "克苏鲁的呼唤 第七版",
   aliases: ["coc", "coc7th", "克苏鲁", "克苏鲁的呼唤", "call of cthulhu"],
+  statAliases: COC_ALIASES,
   summary: "d100 骰低于技能值；常规/困难/极难三级成功，奖励骰与惩罚骰，理智检定",
   parseSheet(data) {
     const r = record(data, "sheet");
@@ -342,7 +343,7 @@ export const coc7: RuleSystem<CocSheet> = {
     [
       "规则：克苏鲁的呼唤第七版（CoC7）。",
       "- 检定用 check：stat 填技能/属性名；difficulty 由你根据情境决定（对抗性强或条件恶劣用 hard/extreme）；有利/不利情境用 bonusDice（±1~2）。",
-      "- 只在失败会带来有意义后果时检定。检定失败后可以在回复里问该玩家要不要孤注一掷，并说明再失败的后果；只有该玩家在之后的发言中明确选择时才用 pushed=true，失败须给更重后果。",
+      "- 只在失败会带来有意义后果时检定。检定失败后可以用 offer_choice（kind=push）问该玩家要不要孤注一掷，prompt 里说明再失败的后果；只有玩家点选「孤注一掷」的那一轮才能 pushed=true，失败须给更重后果。",
       "- 与 NPC 或其他玩家角色的对抗（潜行对聆听、话术对心理学、力量对力量）用 opposed_check，比较成功等级。",
       "- 遭遇恐怖时用 sanity_check，损失写法如 0/1d6、1/1d10；临时疯狂等由你按返回的 notes 处理。",
       "- 战斗伤害等任意骰用 roll（如 1d3+1d4）。",

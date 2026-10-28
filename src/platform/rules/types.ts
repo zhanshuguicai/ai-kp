@@ -128,6 +128,8 @@ export interface RuleSystem<S = unknown> {
     rng: Rng,
   ): CheckResult;
   extraTools?: RuleTool<S>[];
+  /** Groups of names for the same skill/attribute ("侦查" = "Spot Hidden"), for matching names across tools. */
+  statAliases?: string[][];
   /** Contests between two sides (stealth vs listen …). Absent when the system has no opposed rolls. */
   opposed?: OpposedSpec<S>;
   /** Injected into the KP's fixed context (L0). */

@@ -97,6 +97,7 @@ export const dnd5e: RuleSystem<DndSheet> = {
   id: "dnd5e",
   name: "龙与地下城 第五版",
   aliases: ["dnd", "d&d", "5e", "dnd5", "龙与地下城", "dungeons & dragons"],
+  statAliases: [...DND_ABILITY_ALIASES, ...DND_SKILL_ALIASES],
   summary: "d20 + 属性调整 + 熟练加值 对抗 DC；优势/劣势；攻击天然 20 暴击",
   parseSheet(data) {
     const r = record(data, "sheet");
